@@ -1,0 +1,146 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id              String    @id @default(cuid())
+  username        String    @unique
+  password        String
+  name            String
+  role            Role      @default(KHOA_DUOC)
+  approvedInvoices Invoice[]
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+}
+
+enum Role {
+  ADMIN
+  KHOA_DUOC
+  KE_TOAN
+  LANH_DAO
+}
+
+model Company {
+  id          String     @id @default(cuid())
+  name        String
+  address     String?
+  taxCode     String?
+  contactName String?
+  phone       String?
+  contracts   Contract[]
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+}
+
+model Contract {
+  id              String               @id @default(cuid())
+  contractNumber  String               @unique
+  companyId       String
+  company         Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  signDate        DateTime
+  expiryDate      DateTime
+  value           Decimal              @db.Decimal(18, 2)
+  status          ContractStatus       @default(ACTIVE)
+  priority        Priority             @default(NORMAL)
+  appendices      ContractAppendix[]
+  acceptances     ContractAcceptance[]
+  payments        ContractPayment[]
+  invoices        Invoice[]
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+}
+
+enum ContractStatus {
+  ACTIVE
+  EXPIRED
+  TERMINATED
+}
+
+enum Priority {
+  HIGH
+  NORMAL
+  LOW
+}
+
+model ContractAppendix {
+  id             String   @id @default(cuid())
+  appendixNumber String
+  contractId     String
+  contract       Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  value          Decimal  @db.Decimal(18, 2)
+  signDate       DateTime
+  content        String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+model ContractAcceptance {
+  id              String   @id @default(cuid())
+  contractId      String
+  contract        Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  acceptanceBatch Int
+  totalValue      Decimal  @db.Decimal(18, 2)
+  acceptanceValue Decimal  @db.Decimal(18, 2)
+  cumulativeValue Decimal  @db.Decimal(18, 2)
+  acceptanceDate  DateTime
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model ContractPayment {
+  id        String   @id @default(cuid())
+  contractId String
+  contract   Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  paymentNumber String
+  invoiceId  String?
+  invoice    Invoice? @relation(fields: [invoiceId], references: [id])
+
+  // Previous period info
+  prevCumulativeComplete Decimal @db.Decimal(18, 2) @default(0)
+  prevAdvancePayment     Decimal @db.Decimal(18, 2) @default(0)
+  prevDirectPayment      Decimal @db.Decimal(18, 2) @default(0)
+  prevAdvanceBalance     Decimal @db.Decimal(18, 2) @default(0)
+
+  // Current period info
+  requestedAmount Decimal  @db.Decimal(18, 2)
+  advancePayment  Decimal  @db.Decimal(18, 2) @default(0)
+  directPayment   Decimal  @db.Decimal(18, 2) @default(0)
+  paymentDate     DateTime
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Invoice {
+  id              String            @id @default(cuid())
+  invoiceNumber   String            @unique
+  contractId      String
+  contract        Contract          @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  totalAmount     Decimal           @db.Decimal(18, 2)
+  issueDate       DateTime
+  dueDate         DateTime
+  status          InvoiceStatus     @default(PENDING)
+  approvedAt      DateTime?
+  approvedByUserId String?
+  approvedBy      User?             @relation(fields: [approvedByUserId], references: [id])
+  paidAmount      Decimal?          @db.Decimal(18, 2)
+  paymentDate     DateTime?
+  pdfFilePath     String?           // Relative path in Supabase Storage, e.g., "invoices/abc123.pdf"
+  pdfFileName     String?           // Original filename for display
+  payments        ContractPayment[]
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+}
+
+enum InvoiceStatus {
+  PENDING
+  PAID
+  OVERDUE
+}

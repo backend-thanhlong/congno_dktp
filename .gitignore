@@ -1,41 +1,49 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
-
-# dependencies
-/node_modules
+# Dependencies
+node_modules
 /.pnp
-.pnp.*
-.yarn/*
-!.yarn/patches
-!.yarn/plugins
-!.yarn/releases
-!.yarn/versions
+.pnp.js
 
-# testing
+# Testing
 /coverage
 
-# next.js
+# Next.js
 /.next/
 /out/
+next-env.d.ts
 
-# production
+# Production
 /build
+/dist
 
-# misc
-.DS_Store
-*.pem
+# Environment variables - IMPORTANT: DO NOT COMMIT THESE!
+.env
+.env*.local
+!.env.local.example
 
-# debug
+# Debug
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-.pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
-.env*
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+*~
 
-# vercel
+# OS
+.DS_Store
+*.pem
+Thumbs.db
+
+# Prisma
+prisma/dev.db
+prisma/dev.db-journal
+
+# Misc
+*.log
 .vercel
 
-# typescript
-*.tsbuildinfo
-next-env.d.ts
+# Supabase - keep setup instructions, not credentials
+SUPABASE_CONNECTION_ERROR.md
