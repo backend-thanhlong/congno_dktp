@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useSession } from "next-auth/react";
 import {
     Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/select";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Pencil, Trash2, FileText, Search } from "lucide-react";
+import { Plus, Pencil, Trash2, FileText, Search, ChevronLeft, ChevronRight } from "lucide-react";
 
 interface Company {
     id: string;
@@ -35,6 +35,18 @@ interface Contract {
     priority: "HIGH" | "NORMAL" | "LOW";
     appendices: { value: number }[];
 }
+
+interface ContractsResponse {
+    data: Contract[];
+    pagination: {
+        page: number;
+        pageSize: number;
+        total: number;
+        totalPages: number;
+    };
+}
+
+const CONTRACT_PAGE_SIZE = 50;
 
 const statusLabels = {
     ACTIVE: { label: "Còn hiệu lực", color: "bg-transparent text-green-700 border-green-600 font-semibold" },
@@ -56,6 +68,14 @@ export default function ContractPage() {
     const [contracts, setContracts] = useState<Contract[]>([]);
     const [companies, setCompanies] = useState<Company[]>([]);
     const [loading, setLoading] = useState(true);
+    const [page, setPage] = useState(1);
+    const [pagination, setPagination] = useState({
+        page: 1,
+        pageSize: CONTRACT_PAGE_SIZE,
+        total: 0,
+        totalPages: 1,
+    });
+    const [searchInput, setSearchInput] = useState("");
     const [searchTerm, setSearchTerm] = useState("");
     const [isDialogOpen, setIsDialogOpen] = useState(false);
     const [editingContract, setEditingContract] = useState<Contract | null>(null);
@@ -69,24 +89,37 @@ export default function ContractPage() {
         priority: "NORMAL",
     });
 
-    useEffect(() => {
-        fetchContracts();
-        fetchCompanies();
-    }, []);
-
-    async function fetchContracts() {
+    const fetchContracts = useCallback(async (targetPage: number, targetSearch: string) => {
+        setLoading(true);
         try {
-            const response = await fetch("/api/contracts");
-            const data = await response.json();
-            setContracts(data);
+            const params = new URLSearchParams({
+                page: targetPage.toString(),
+                pageSize: CONTRACT_PAGE_SIZE.toString(),
+            });
+
+            if (targetSearch) {
+                params.set("search", targetSearch);
+            }
+
+            const response = await fetch(`/api/contracts?${params.toString()}`);
+            if (!response.ok) {
+                throw new Error("Failed to fetch contracts");
+            }
+
+            const data: ContractsResponse = await response.json();
+            setContracts(data.data);
+            setPagination(data.pagination);
+            setPage((currentPage) => (
+                data.pagination.page === currentPage ? currentPage : data.pagination.page
+            ));
         } catch (error) {
             console.error("Error fetching contracts:", error);
         } finally {
             setLoading(false);
         }
-    }
+    }, []);
 
-    async function fetchCompanies() {
+    const fetchCompanies = useCallback(async () => {
         try {
             const response = await fetch("/api/companies");
             const data = await response.json();
@@ -94,13 +127,24 @@ export default function ContractPage() {
         } catch (error) {
             console.error("Error fetching companies:", error);
         }
-    }
+    }, []);
 
-    const filteredContracts = contracts.filter(
-        (contract) =>
-            contract.contractNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            contract.company.name.toLowerCase().includes(searchTerm.toLowerCase())
-    );
+    useEffect(() => {
+        fetchContracts(page, searchTerm);
+    }, [fetchContracts, page, searchTerm]);
+
+    useEffect(() => {
+        fetchCompanies();
+    }, [fetchCompanies]);
+
+    useEffect(() => {
+        const timeoutId = window.setTimeout(() => {
+            setPage(1);
+            setSearchTerm(searchInput.trim());
+        }, 300);
+
+        return () => window.clearTimeout(timeoutId);
+    }, [searchInput]);
 
     function openCreateDialog() {
         setEditingContract(null);
@@ -142,7 +186,7 @@ export default function ContractPage() {
             });
             if (response.ok) {
                 setIsDialogOpen(false);
-                fetchContracts();
+                fetchContracts(page, searchTerm);
             }
         } catch (error) {
             console.error("Error saving contract:", error);
@@ -153,7 +197,13 @@ export default function ContractPage() {
         if (!confirm("Bạn có chắc muốn xóa hợp đồng này?")) return;
         try {
             const response = await fetch(`/api/contracts/${id}`, { method: "DELETE" });
-            if (response.ok) fetchContracts();
+            if (response.ok) {
+                if (contracts.length === 1 && page > 1) {
+                    setPage(page - 1);
+                } else {
+                    fetchContracts(page, searchTerm);
+                }
+            }
         } catch (error) {
             console.error("Error deleting contract:", error);
         }
@@ -166,6 +216,9 @@ export default function ContractPage() {
     function formatDate(date: string) {
         return new Date(date).toLocaleDateString("vi-VN");
     }
+
+    const startRow = pagination.total === 0 ? 0 : (pagination.page - 1) * pagination.pageSize + 1;
+    const endRow = Math.min(pagination.page * pagination.pageSize, pagination.total);
 
     return (
         <div className="space-y-6">
@@ -324,8 +377,8 @@ export default function ContractPage() {
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                         <Input
                             placeholder="Tìm kiếm theo số hợp đồng, tên công ty..."
-                            value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
+                            value={searchInput}
+                            onChange={(e) => setSearchInput(e.target.value)}
                             className="pl-10 bg-white border-slate-200 text-slate-800 focus:border-blue-500"
                         />
                     </div>
@@ -334,13 +387,14 @@ export default function ContractPage() {
 
             <Card className="bg-white/80 border-slate-200 shadow-sm backdrop-blur-sm">
                 <CardHeader>
-                    <CardTitle className="text-slate-800">Hợp đồng ({filteredContracts.length})</CardTitle>
+                    <CardTitle className="text-slate-800">Hợp đồng ({pagination.total})</CardTitle>
                     <CardDescription className="text-slate-500">Danh sách tất cả hợp đồng</CardDescription>
                 </CardHeader>
                 <CardContent>
                     {loading ? (
                         <div className="text-center py-8 text-slate-500">Đang tải...</div>
                     ) : (
+                        <>
                         <div className="overflow-x-auto">
                             <Table>
                                 <TableHeader>
@@ -359,19 +413,19 @@ export default function ContractPage() {
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
-                                    {filteredContracts.length === 0 ? (
+                                    {contracts.length === 0 ? (
                                         <TableRow>
                                             <TableCell colSpan={canEdit ? 11 : 10} className="text-center py-8 text-slate-500">
                                                 Không có dữ liệu
                                             </TableCell>
                                         </TableRow>
                                     ) : (
-                                        filteredContracts.map((contract, index) => {
+                                        contracts.map((contract, index) => {
                                             const totalAppendixValue = contract.appendices?.reduce((sum, app) => sum + Number(app.value), 0) || 0;
                                             const totalValue = Number(contract.value) + totalAppendixValue;
                                             return (
                                                 <TableRow key={contract.id} className="border-slate-100 hover:bg-slate-50">
-                                                    <TableCell className="text-slate-500">{index + 1}</TableCell>
+                                                    <TableCell className="text-slate-500">{(pagination.page - 1) * pagination.pageSize + index + 1}</TableCell>
                                                     <TableCell className="text-slate-800 font-medium">{contract.contractNumber}</TableCell>
                                                     <TableCell className="text-slate-600">{contract.company.name}</TableCell>
                                                     <TableCell className="text-slate-600">{formatDate(contract.signDate)}</TableCell>
@@ -412,6 +466,39 @@ export default function ContractPage() {
                                 </TableBody>
                             </Table>
                         </div>
+                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-4">
+                            <p className="text-sm text-slate-500">
+                                Hiển thị {startRow}-{endRow} / {pagination.total}
+                            </p>
+                            <div className="flex items-center justify-end gap-2">
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => setPage((currentPage) => Math.max(1, currentPage - 1))}
+                                    disabled={loading || pagination.page <= 1}
+                                    className="border-slate-200 text-slate-600 hover:bg-slate-50"
+                                >
+                                    <ChevronLeft className="w-4 h-4 mr-1" />
+                                    Trước
+                                </Button>
+                                <span className="min-w-24 text-center text-sm text-slate-600">
+                                    Trang {pagination.page} / {pagination.totalPages}
+                                </span>
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => setPage((currentPage) => Math.min(pagination.totalPages, currentPage + 1))}
+                                    disabled={loading || pagination.page >= pagination.totalPages}
+                                    className="border-slate-200 text-slate-600 hover:bg-slate-50"
+                                >
+                                    Sau
+                                    <ChevronRight className="w-4 h-4 ml-1" />
+                                </Button>
+                            </div>
+                        </div>
+                        </>
                     )}
                 </CardContent>
             </Card>
