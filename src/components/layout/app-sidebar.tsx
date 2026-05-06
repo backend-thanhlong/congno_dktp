@@ -1,11 +1,11 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -117,14 +117,16 @@ export function AppSidebar() {
     const isChildActive = (children?: { href: string }[]) =>
         children?.some((child) => pathname === child.href);
 
-    const SidebarContent = () => (
+    const sidebarContent = (
         <>
             {/* Logo */}
             <div className="p-6 border-b border-slate-200 bg-white/50 backdrop-blur-sm">
                 <div className="flex items-center gap-3">
-                    <img
+                    <Image
                         src="/logodktp.png"
                         alt="Logo DKTP"
+                        width={40}
+                        height={40}
                         className="w-10 h-10 object-contain"
                     />
                     <div>
@@ -271,7 +273,7 @@ export function AppSidebar() {
                     mobileOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
                 )}
             >
-                <SidebarContent />
+                {sidebarContent}
             </aside>
         </>
     );

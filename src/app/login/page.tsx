@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Image from "next/image";
 import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -49,9 +50,11 @@ export default function LoginPage() {
             <Card className="w-full max-w-md mx-4 relative z-10 bg-white/70 backdrop-blur-md border-white/50 shadow-xl">
                 <CardHeader className="space-y-1 text-center">
                     <div className="mx-auto mb-4 flex items-center justify-center">
-                        <img
+                        <Image
                             src="/logodktp.png"
                             alt="Logo DKTP"
+                            width={160}
+                            height={96}
                             className="h-24 w-auto object-contain"
                         />
                     </div>

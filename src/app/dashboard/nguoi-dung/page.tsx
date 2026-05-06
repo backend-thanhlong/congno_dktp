@@ -91,8 +91,8 @@ export default function UsersPage() {
                 const data = await res.json();
                 setUsers(data);
             }
-        } catch (error) {
-            console.error("Error fetching users:", error);
+        } catch (fetchUsersError) {
+            console.error("Error fetching users:", fetchUsersError);
         } finally {
             setLoading(false);
         }
@@ -130,7 +130,7 @@ export default function UsersPage() {
             } else {
                 setMessage({ type: "error", text: data.error || "Đã xảy ra lỗi" });
             }
-        } catch (error) {
+        } catch {
             setMessage({ type: "error", text: "Không thể kết nối đến server" });
         }
     }
@@ -147,7 +147,7 @@ export default function UsersPage() {
                 const data = await res.json();
                 setMessage({ type: "error", text: data.error || "Không thể xóa người dùng" });
             }
-        } catch (error) {
+        } catch {
             setMessage({ type: "error", text: "Không thể kết nối đến server" });
         }
     }

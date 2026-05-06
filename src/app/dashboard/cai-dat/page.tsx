@@ -43,7 +43,7 @@ export default function SettingsPage() {
             } else {
                 setMessage({ type: "error", text: data.error || "Đã xảy ra lỗi" });
             }
-        } catch (error) {
+        } catch {
             setMessage({ type: "error", text: "Không thể kết nối đến server" });
         } finally {
             setLoading(false);

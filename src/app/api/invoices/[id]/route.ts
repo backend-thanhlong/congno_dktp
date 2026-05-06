@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
+import type { Prisma } from "@prisma/client";
 
 // Helper function to calculate invoice status dynamically
 function calculateInvoiceStatus(invoice: { approvedAt: Date | null; dueDate: Date }): "PENDING" | "PAID" | "OVERDUE" {
@@ -109,7 +110,7 @@ export async function PUT(
         }
 
         // Build update data
-        const updateData: any = {
+        const updateData: Prisma.InvoiceUncheckedUpdateInput = {
             invoiceNumber,
             contractId,
             totalAmount: parseFloat(totalAmount),

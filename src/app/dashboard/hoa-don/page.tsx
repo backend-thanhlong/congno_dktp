@@ -119,7 +119,8 @@ export default function InvoicePage() {
     const sorted = [...filtered].sort((a, b) => {
         if (!sortColumn) return 0;
 
-        let aVal: any, bVal: any;
+        let aVal: string | number;
+        let bVal: string | number;
 
         switch (sortColumn) {
             case "invoiceNumber":

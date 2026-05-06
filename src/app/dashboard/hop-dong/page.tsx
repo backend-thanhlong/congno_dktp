@@ -240,7 +240,7 @@ export default function ContractPage() {
                                                 const newExpiryDate = e.target.value;
                                                 let newStatus = formData.status;
 
-                                                if (newExpiryDate) {
+                                                if (newExpiryDate && formData.status !== "TERMINATED") {
                                                     const today = new Date();
                                                     today.setHours(0, 0, 0, 0);
                                                     const expiry = new Date(newExpiryDate);
@@ -274,7 +274,7 @@ export default function ContractPage() {
                                         <Label className="text-slate-700">Hiệu lực</Label>
                                         <Select
                                             value={formData.status}
-                                            onValueChange={(value) => setFormData({ ...formData, status: value as any })}
+                                            onValueChange={(value) => setFormData({ ...formData, status: value as Contract["status"] })}
                                             disabled
                                         >
                                             <SelectTrigger className="bg-white border-slate-200 text-slate-800 focus:border-blue-500">
@@ -291,7 +291,7 @@ export default function ContractPage() {
                                         <Label className="text-slate-700">Ưu tiên</Label>
                                         <Select
                                             value={formData.priority}
-                                            onValueChange={(value) => setFormData({ ...formData, priority: value as any })}
+                                            onValueChange={(value) => setFormData({ ...formData, priority: value as Contract["priority"] })}
                                         >
                                             <SelectTrigger className="bg-white border-slate-200 text-slate-800 focus:border-blue-500">
                                                 <SelectValue />

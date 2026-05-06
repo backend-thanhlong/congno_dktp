@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
+import { calculateContractStatus, type ContractStatus } from "@/lib/contract-status";
 
 export async function GET() {
     try {
@@ -17,7 +18,12 @@ export async function GET() {
                 },
             },
         });
-        return NextResponse.json(contracts);
+        const contractsWithStatus = contracts.map((contract) => ({
+            ...contract,
+            status: calculateContractStatus(contract),
+        }));
+
+        return NextResponse.json(contractsWithStatus);
     } catch (error) {
         console.error("Error fetching contracts:", error);
         return NextResponse.json({ error: "Failed to fetch contracts" }, { status: 500 });
@@ -33,14 +39,20 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
         }
 
+        const parsedExpiryDate = new Date(expiryDate);
+        const contractStatus = calculateContractStatus({
+            expiryDate: parsedExpiryDate,
+            status: status as ContractStatus | undefined,
+        });
+
         const contract = await prisma.contract.create({
             data: {
                 contractNumber,
                 companyId,
                 signDate: new Date(signDate),
-                expiryDate: new Date(expiryDate),
+                expiryDate: parsedExpiryDate,
                 value: parseFloat(value),
-                status: status || "ACTIVE",
+                status: contractStatus,
                 priority: priority || "NORMAL",
             },
             include: { company: true },
