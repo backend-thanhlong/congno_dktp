@@ -37,15 +37,15 @@ interface Contract {
 }
 
 const statusLabels = {
-    ACTIVE: { label: "Còn hiệu lực", color: "bg-green-500/20 text-green-300 border-green-500/30" },
-    EXPIRED: { label: "Hết hạn", color: "bg-yellow-500/20 text-yellow-300 border-yellow-500/30" },
-    TERMINATED: { label: "Đã hủy", color: "bg-red-500/20 text-red-300 border-red-500/30" },
+    ACTIVE: { label: "Còn hiệu lực", color: "bg-transparent text-green-700 border-green-600 font-semibold" },
+    EXPIRED: { label: "Hết hạn", color: "bg-transparent text-amber-700 border-amber-600 font-semibold" },
+    TERMINATED: { label: "Đã hủy", color: "bg-transparent text-red-700 border-red-600 font-semibold" },
 };
 
 const priorityLabels = {
-    HIGH: { label: "Cao", color: "bg-red-500/20 text-red-300 border-red-500/30" },
-    NORMAL: { label: "Bình thường", color: "bg-blue-500/20 text-blue-300 border-blue-500/30" },
-    LOW: { label: "Thấp", color: "bg-slate-500/20 text-slate-300 border-slate-500/30" },
+    HIGH: { label: "Cao", color: "bg-transparent text-red-700 border-red-600 font-semibold" },
+    NORMAL: { label: "Bình thường", color: "bg-transparent text-blue-700 border-blue-600 font-semibold" },
+    LOW: { label: "Thấp", color: "bg-transparent text-slate-700 border-slate-500 font-semibold" },
 };
 
 export default function ContractPage() {
@@ -378,12 +378,12 @@ export default function ContractPage() {
                                                     <TableCell className="text-slate-600">{formatDate(contract.expiryDate)}</TableCell>
                                                     <TableCell className="text-slate-600">{formatCurrency(Number(contract.value))}</TableCell>
                                                     <TableCell>
-                                                        <Badge className={statusLabels[contract.status].color}>
+                                                        <Badge variant="outline" className={statusLabels[contract.status].color}>
                                                             {statusLabels[contract.status].label}
                                                         </Badge>
                                                     </TableCell>
                                                     <TableCell>
-                                                        <Badge className={priorityLabels[contract.priority].color}>
+                                                        <Badge variant="outline" className={priorityLabels[contract.priority].color}>
                                                             {priorityLabels[contract.priority].label}
                                                         </Badge>
                                                     </TableCell>
