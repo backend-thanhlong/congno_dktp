@@ -46,7 +46,62 @@ interface ContractsResponse {
     };
 }
 
+type GoodsCategoryType = "MEDICINE" | "SUPPLY";
+
+interface MedicineItemResponse {
+    id: string;
+    orderNumber: number;
+    drugName: string;
+    activeIngredient: string;
+    concentration: string;
+    dosageForm: string;
+    route: string;
+    unitPrice: number | string;
+    quantity: number | string;
+    lineTotal: number | string;
+}
+
+interface SupplyItemResponse {
+    id: string;
+    orderNumber: number;
+    goodsName: string;
+    technicalRequirement: string | null;
+    quantity: number | string;
+    unitPrice: number | string;
+    lineTotal: number | string;
+}
+
+interface ContractGoodsCategory {
+    id: string;
+    contractId: string;
+    type: GoodsCategoryType;
+    medicines: MedicineItemResponse[];
+    supplies: SupplyItemResponse[];
+}
+
+interface MedicineFormItem {
+    drugName: string;
+    activeIngredient: string;
+    concentration: string;
+    dosageForm: string;
+    route: string;
+    unitPrice: string;
+    quantity: string;
+}
+
+interface SupplyFormItem {
+    goodsName: string;
+    technicalRequirement: string;
+    quantity: string;
+    unitPrice: string;
+}
+
 const CONTRACT_PAGE_SIZE = 50;
+
+const categoryTypeLabels = {
+    MEDICINE: "Thuốc",
+    SUPPLY: "Vật tư",
+};
 
 const statusLabels = {
     ACTIVE: { label: "Còn hiệu lực", color: "bg-transparent text-green-700 border-green-600 font-semibold" },
@@ -88,6 +143,15 @@ export default function ContractPage() {
         status: "ACTIVE",
         priority: "NORMAL",
     });
+    const [isCategoryDialogOpen, setIsCategoryDialogOpen] = useState(false);
+    const [selectedContract, setSelectedContract] = useState<Contract | null>(null);
+    const [goodsCategory, setGoodsCategory] = useState<ContractGoodsCategory | null>(null);
+    const [categoryType, setCategoryType] = useState<GoodsCategoryType | "">("");
+    const [medicineItems, setMedicineItems] = useState<MedicineFormItem[]>([]);
+    const [supplyItems, setSupplyItems] = useState<SupplyFormItem[]>([]);
+    const [categoryLoading, setCategoryLoading] = useState(false);
+    const [categorySaving, setCategorySaving] = useState(false);
+    const [categoryError, setCategoryError] = useState("");
 
     const fetchContracts = useCallback(async (targetPage: number, targetSearch: string) => {
         setLoading(true);
@@ -145,6 +209,220 @@ export default function ContractPage() {
 
         return () => window.clearTimeout(timeoutId);
     }, [searchInput]);
+
+    function createEmptyMedicineItem(): MedicineFormItem {
+        return {
+            drugName: "",
+            activeIngredient: "",
+            concentration: "",
+            dosageForm: "",
+            route: "",
+            unitPrice: "",
+            quantity: "",
+        };
+    }
+
+    function createEmptySupplyItem(): SupplyFormItem {
+        return {
+            goodsName: "",
+            technicalRequirement: "",
+            quantity: "",
+            unitPrice: "",
+        };
+    }
+
+    function toInputValue(value: number | string | null | undefined) {
+        return value === null || value === undefined ? "" : value.toString();
+    }
+
+    function hydrateGoodsCategory(category: ContractGoodsCategory | null) {
+        setGoodsCategory(category);
+
+        if (!category) {
+            setCategoryType("");
+            setMedicineItems([]);
+            setSupplyItems([]);
+            return;
+        }
+
+        setCategoryType(category.type);
+        setMedicineItems(category.medicines.map((item) => ({
+            drugName: item.drugName,
+            activeIngredient: item.activeIngredient,
+            concentration: item.concentration,
+            dosageForm: item.dosageForm,
+            route: item.route,
+            unitPrice: toInputValue(item.unitPrice),
+            quantity: toInputValue(item.quantity),
+        })));
+        setSupplyItems(category.supplies.map((item) => ({
+            goodsName: item.goodsName,
+            technicalRequirement: item.technicalRequirement || "",
+            quantity: toInputValue(item.quantity),
+            unitPrice: toInputValue(item.unitPrice),
+        })));
+    }
+
+    function resetCategoryDialog() {
+        setSelectedContract(null);
+        setGoodsCategory(null);
+        setCategoryType("");
+        setMedicineItems([]);
+        setSupplyItems([]);
+        setCategoryError("");
+        setCategoryLoading(false);
+        setCategorySaving(false);
+    }
+
+    function handleCategoryDialogOpenChange(open: boolean) {
+        setIsCategoryDialogOpen(open);
+        if (!open) {
+            resetCategoryDialog();
+        }
+    }
+
+    async function openCategoryDialog(contract: Contract) {
+        setSelectedContract(contract);
+        setIsCategoryDialogOpen(true);
+        setCategoryError("");
+        setCategoryLoading(true);
+
+        try {
+            const response = await fetch(`/api/contracts/${contract.id}/goods-category`);
+            if (!response.ok) {
+                throw new Error("Failed to fetch goods category");
+            }
+
+            const data: ContractGoodsCategory | null = await response.json();
+            hydrateGoodsCategory(data);
+        } catch (error) {
+            console.error("Error fetching goods category:", error);
+            setCategoryError("Không tải được danh mục hàng hóa.");
+            hydrateGoodsCategory(null);
+        } finally {
+            setCategoryLoading(false);
+        }
+    }
+
+    function handleCategoryTypeChange(value: GoodsCategoryType) {
+        setCategoryType(value);
+        setCategoryError("");
+
+        if (value === "MEDICINE" && medicineItems.length === 0) {
+            setMedicineItems([createEmptyMedicineItem()]);
+        }
+
+        if (value === "SUPPLY" && supplyItems.length === 0) {
+            setSupplyItems([createEmptySupplyItem()]);
+        }
+    }
+
+    function addMedicineItem() {
+        setMedicineItems((items) => [...items, createEmptyMedicineItem()]);
+    }
+
+    function updateMedicineItem(index: number, field: keyof MedicineFormItem, value: string) {
+        setMedicineItems((items) => items.map((item, itemIndex) => (
+            itemIndex === index ? { ...item, [field]: value } : item
+        )));
+    }
+
+    function removeMedicineItem(index: number) {
+        setMedicineItems((items) => items.filter((_, itemIndex) => itemIndex !== index));
+    }
+
+    function addSupplyItem() {
+        setSupplyItems((items) => [...items, createEmptySupplyItem()]);
+    }
+
+    function updateSupplyItem(index: number, field: keyof SupplyFormItem, value: string) {
+        setSupplyItems((items) => items.map((item, itemIndex) => (
+            itemIndex === index ? { ...item, [field]: value } : item
+        )));
+    }
+
+    function removeSupplyItem(index: number) {
+        setSupplyItems((items) => items.filter((_, itemIndex) => itemIndex !== index));
+    }
+
+    function calculateLineTotal(unitPrice: string, quantity: string) {
+        const parsedUnitPrice = Number(unitPrice);
+        const parsedQuantity = Number(quantity);
+
+        if (!Number.isFinite(parsedUnitPrice) || !Number.isFinite(parsedQuantity)) {
+            return 0;
+        }
+
+        return parsedUnitPrice * parsedQuantity;
+    }
+
+    async function readApiError(response: Response) {
+        try {
+            const data = await response.json();
+            return data?.error || "Không lưu được danh mục hàng hóa.";
+        } catch {
+            return "Không lưu được danh mục hàng hóa.";
+        }
+    }
+
+    async function handleSaveCategory() {
+        if (!selectedContract || !categoryType) {
+            setCategoryError("Vui lòng chọn loại danh mục.");
+            return;
+        }
+
+        setCategorySaving(true);
+        setCategoryError("");
+
+        const items = categoryType === "MEDICINE"
+            ? medicineItems.map((item, index) => ({ ...item, orderNumber: index + 1 }))
+            : supplyItems.map((item, index) => ({ ...item, orderNumber: index + 1 }));
+
+        try {
+            const response = await fetch(`/api/contracts/${selectedContract.id}/goods-category`, {
+                method: goodsCategory ? "PUT" : "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ type: categoryType, items }),
+            });
+
+            if (!response.ok) {
+                throw new Error(await readApiError(response));
+            }
+
+            const data: ContractGoodsCategory = await response.json();
+            hydrateGoodsCategory(data);
+        } catch (error) {
+            console.error("Error saving goods category:", error);
+            setCategoryError(error instanceof Error ? error.message : "Không lưu được danh mục hàng hóa.");
+        } finally {
+            setCategorySaving(false);
+        }
+    }
+
+    async function handleDeleteCategory() {
+        if (!selectedContract || !goodsCategory) return;
+        if (!confirm("Bạn có chắc muốn xóa danh mục hàng hóa của hợp đồng này?")) return;
+
+        setCategorySaving(true);
+        setCategoryError("");
+
+        try {
+            const response = await fetch(`/api/contracts/${selectedContract.id}/goods-category`, {
+                method: "DELETE",
+            });
+
+            if (!response.ok) {
+                throw new Error(await readApiError(response));
+            }
+
+            hydrateGoodsCategory(null);
+        } catch (error) {
+            console.error("Error deleting goods category:", error);
+            setCategoryError(error instanceof Error ? error.message : "Không xóa được danh mục hàng hóa.");
+        } finally {
+            setCategorySaving(false);
+        }
+    }
 
     function openCreateDialog() {
         setEditingContract(null);
@@ -215,6 +493,144 @@ export default function ContractPage() {
 
     function formatDate(date: string) {
         return new Date(date).toLocaleDateString("vi-VN");
+    }
+
+    function renderMedicineTable() {
+        return (
+            <div className="space-y-3">
+                {canEdit && (
+                    <Button type="button" variant="outline" size="sm" onClick={addMedicineItem} className="border-slate-200 text-slate-700 hover:bg-slate-50">
+                        <Plus className="w-4 h-4 mr-2" />
+                        Thêm dòng
+                    </Button>
+                )}
+                {medicineItems.length === 0 ? (
+                    <div className="rounded-md border border-slate-200 py-8 text-center text-sm text-slate-500">
+                        Chưa có dòng thuốc
+                    </div>
+                ) : (
+                    <div className="rounded-md border border-slate-200">
+                        <Table className="min-w-[1180px]">
+                            <TableHeader>
+                                <TableRow className="border-slate-200 hover:bg-transparent">
+                                    <TableHead className="text-slate-500 w-14">STT</TableHead>
+                                    <TableHead className="text-slate-500 min-w-40">Tên thuốc</TableHead>
+                                    <TableHead className="text-slate-500 min-w-40">Tên hoạt chất</TableHead>
+                                    <TableHead className="text-slate-500 min-w-40">Nồng độ/Hàm lượng</TableHead>
+                                    <TableHead className="text-slate-500 min-w-36">Dạng bào chế</TableHead>
+                                    <TableHead className="text-slate-500 min-w-32">Đường dùng</TableHead>
+                                    <TableHead className="text-slate-500 min-w-32">Đơn giá</TableHead>
+                                    <TableHead className="text-slate-500 min-w-28">Số lượng</TableHead>
+                                    <TableHead className="text-slate-500 min-w-36">Thành tiền</TableHead>
+                                    {canEdit && <TableHead className="text-slate-500 text-right w-16">Xóa</TableHead>}
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                {medicineItems.map((item, index) => (
+                                    <TableRow key={index} className="border-slate-100 hover:bg-slate-50">
+                                        <TableCell className="text-slate-500">{index + 1}</TableCell>
+                                        <TableCell>
+                                            <Input value={item.drugName} onChange={(e) => updateMedicineItem(index, "drugName", e.target.value)} disabled={!canEdit} required className="bg-white border-slate-200 text-slate-800" />
+                                        </TableCell>
+                                        <TableCell>
+                                            <Input value={item.activeIngredient} onChange={(e) => updateMedicineItem(index, "activeIngredient", e.target.value)} disabled={!canEdit} required className="bg-white border-slate-200 text-slate-800" />
+                                        </TableCell>
+                                        <TableCell>
+                                            <Input value={item.concentration} onChange={(e) => updateMedicineItem(index, "concentration", e.target.value)} disabled={!canEdit} required className="bg-white border-slate-200 text-slate-800" />
+                                        </TableCell>
+                                        <TableCell>
+                                            <Input value={item.dosageForm} onChange={(e) => updateMedicineItem(index, "dosageForm", e.target.value)} disabled={!canEdit} required className="bg-white border-slate-200 text-slate-800" />
+                                        </TableCell>
+                                        <TableCell>
+                                            <Input value={item.route} onChange={(e) => updateMedicineItem(index, "route", e.target.value)} disabled={!canEdit} required className="bg-white border-slate-200 text-slate-800" />
+                                        </TableCell>
+                                        <TableCell>
+                                            <Input type="number" min="0" step="0.01" value={item.unitPrice} onChange={(e) => updateMedicineItem(index, "unitPrice", e.target.value)} disabled={!canEdit} required className="bg-white border-slate-200 text-slate-800" />
+                                        </TableCell>
+                                        <TableCell>
+                                            <Input type="number" min="0" step="0.01" value={item.quantity} onChange={(e) => updateMedicineItem(index, "quantity", e.target.value)} disabled={!canEdit} required className="bg-white border-slate-200 text-slate-800" />
+                                        </TableCell>
+                                        <TableCell className="font-semibold text-green-700">
+                                            {formatCurrency(calculateLineTotal(item.unitPrice, item.quantity))}
+                                        </TableCell>
+                                        {canEdit && (
+                                            <TableCell className="text-right">
+                                                <Button type="button" size="sm" variant="ghost" onClick={() => removeMedicineItem(index)} className="text-red-600 hover:text-red-700 hover:bg-red-50">
+                                                    <Trash2 className="w-4 h-4" />
+                                                </Button>
+                                            </TableCell>
+                                        )}
+                                    </TableRow>
+                                ))}
+                            </TableBody>
+                        </Table>
+                    </div>
+                )}
+            </div>
+        );
+    }
+
+    function renderSupplyTable() {
+        return (
+            <div className="space-y-3">
+                {canEdit && (
+                    <Button type="button" variant="outline" size="sm" onClick={addSupplyItem} className="border-slate-200 text-slate-700 hover:bg-slate-50">
+                        <Plus className="w-4 h-4 mr-2" />
+                        Thêm dòng
+                    </Button>
+                )}
+                {supplyItems.length === 0 ? (
+                    <div className="rounded-md border border-slate-200 py-8 text-center text-sm text-slate-500">
+                        Chưa có dòng vật tư
+                    </div>
+                ) : (
+                    <div className="rounded-md border border-slate-200">
+                        <Table className="min-w-[860px]">
+                            <TableHeader>
+                                <TableRow className="border-slate-200 hover:bg-transparent">
+                                    <TableHead className="text-slate-500 w-14">STT</TableHead>
+                                    <TableHead className="text-slate-500 min-w-52">Tên hàng hóa</TableHead>
+                                    <TableHead className="text-slate-500 min-w-72">Yêu cầu kỹ thuật</TableHead>
+                                    <TableHead className="text-slate-500 min-w-28">Số lượng</TableHead>
+                                    <TableHead className="text-slate-500 min-w-32">Đơn giá</TableHead>
+                                    <TableHead className="text-slate-500 min-w-36">Thành tiền</TableHead>
+                                    {canEdit && <TableHead className="text-slate-500 text-right w-16">Xóa</TableHead>}
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                {supplyItems.map((item, index) => (
+                                    <TableRow key={index} className="border-slate-100 hover:bg-slate-50">
+                                        <TableCell className="text-slate-500">{index + 1}</TableCell>
+                                        <TableCell>
+                                            <Input value={item.goodsName} onChange={(e) => updateSupplyItem(index, "goodsName", e.target.value)} disabled={!canEdit} required className="bg-white border-slate-200 text-slate-800" />
+                                        </TableCell>
+                                        <TableCell>
+                                            <Input value={item.technicalRequirement} onChange={(e) => updateSupplyItem(index, "technicalRequirement", e.target.value)} disabled={!canEdit} className="bg-white border-slate-200 text-slate-800" />
+                                        </TableCell>
+                                        <TableCell>
+                                            <Input type="number" min="0" step="0.01" value={item.quantity} onChange={(e) => updateSupplyItem(index, "quantity", e.target.value)} disabled={!canEdit} required className="bg-white border-slate-200 text-slate-800" />
+                                        </TableCell>
+                                        <TableCell>
+                                            <Input type="number" min="0" step="0.01" value={item.unitPrice} onChange={(e) => updateSupplyItem(index, "unitPrice", e.target.value)} disabled={!canEdit} required className="bg-white border-slate-200 text-slate-800" />
+                                        </TableCell>
+                                        <TableCell className="font-semibold text-green-700">
+                                            {formatCurrency(calculateLineTotal(item.unitPrice, item.quantity))}
+                                        </TableCell>
+                                        {canEdit && (
+                                            <TableCell className="text-right">
+                                                <Button type="button" size="sm" variant="ghost" onClick={() => removeSupplyItem(index)} className="text-red-600 hover:text-red-700 hover:bg-red-50">
+                                                    <Trash2 className="w-4 h-4" />
+                                                </Button>
+                                            </TableCell>
+                                        )}
+                                    </TableRow>
+                                ))}
+                            </TableBody>
+                        </Table>
+                    </div>
+                )}
+            </div>
+        );
     }
 
     const startRow = pagination.total === 0 ? 0 : (pagination.page - 1) * pagination.pageSize + 1;
@@ -371,6 +787,84 @@ export default function ContractPage() {
                 )}
             </div>
 
+            <Dialog open={isCategoryDialogOpen} onOpenChange={handleCategoryDialogOpenChange}>
+                <DialogContent className="bg-white border-slate-200 text-slate-800 shadow-xl sm:max-w-6xl max-h-[90vh] overflow-y-auto">
+                    <DialogHeader>
+                        <DialogTitle className="text-slate-800">Danh mục hàng hóa</DialogTitle>
+                        <DialogDescription className="text-slate-500">
+                            {selectedContract ? `${selectedContract.contractNumber} - ${selectedContract.company.name}` : "Danh mục theo hợp đồng"}
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    {categoryLoading ? (
+                        <div className="text-center py-8 text-slate-500">Đang tải...</div>
+                    ) : (
+                        <div className="space-y-4">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div className="space-y-2">
+                                    <Label className="text-slate-700">Hợp đồng</Label>
+                                    <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-800">
+                                        {selectedContract?.contractNumber || ""}
+                                    </div>
+                                </div>
+                                <div className="space-y-2">
+                                    <Label className="text-slate-700">Loại danh mục</Label>
+                                    {goodsCategory || !canEdit ? (
+                                        <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-800">
+                                            {categoryType ? categoryTypeLabels[categoryType] : "Chưa có danh mục"}
+                                        </div>
+                                    ) : (
+                                        <Select
+                                            value={categoryType}
+                                            onValueChange={(value) => handleCategoryTypeChange(value as GoodsCategoryType)}
+                                        >
+                                            <SelectTrigger className="bg-white border-slate-200 text-slate-800 focus:border-blue-500">
+                                                <SelectValue placeholder="Chọn Thuốc hoặc Vật tư" />
+                                            </SelectTrigger>
+                                            <SelectContent className="bg-white border-slate-200 text-slate-800">
+                                                <SelectItem value="MEDICINE" className="hover:bg-slate-100 cursor-pointer">Thuốc</SelectItem>
+                                                <SelectItem value="SUPPLY" className="hover:bg-slate-100 cursor-pointer">Vật tư</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                    )}
+                                </div>
+                            </div>
+
+                            {categoryError && (
+                                <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                                    {categoryError}
+                                </div>
+                            )}
+
+                            {!categoryType && (
+                                <div className="rounded-md border border-slate-200 py-8 text-center text-sm text-slate-500">
+                                    Chưa có danh mục hàng hóa
+                                </div>
+                            )}
+
+                            {categoryType === "MEDICINE" && renderMedicineTable()}
+                            {categoryType === "SUPPLY" && renderSupplyTable()}
+                        </div>
+                    )}
+
+                    <DialogFooter>
+                        {canEdit && goodsCategory && !categoryLoading && (
+                            <Button type="button" variant="outline" onClick={handleDeleteCategory} disabled={categorySaving} className="border-red-200 text-red-600 hover:bg-red-50">
+                                Xóa danh mục
+                            </Button>
+                        )}
+                        <Button type="button" variant="outline" onClick={() => handleCategoryDialogOpenChange(false)} className="border-slate-200 text-slate-600 hover:bg-slate-50">
+                            Đóng
+                        </Button>
+                        {canEdit && !categoryLoading && (
+                            <Button type="button" onClick={handleSaveCategory} disabled={categorySaving || !categoryType} className="bg-gradient-to-r from-blue-600 to-purple-600 text-white">
+                                {categorySaving ? "Đang lưu..." : "Lưu danh mục"}
+                            </Button>
+                        )}
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
             <Card className="bg-white/80 border-slate-200 shadow-sm backdrop-blur-sm">
                 <CardContent className="p-4">
                     <div className="relative">
@@ -409,13 +903,13 @@ export default function ContractPage() {
                                         <TableHead className="text-slate-500">Ưu tiên</TableHead>
                                         <TableHead className="text-slate-500">Giá trị Phụ lục</TableHead>
                                         <TableHead className="text-slate-500">Tổng giá trị</TableHead>
-                                        {canEdit && <TableHead className="text-slate-500 text-right">Thao tác</TableHead>}
+                                        <TableHead className="text-slate-500 text-right">Thao tác</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
                                     {contracts.length === 0 ? (
                                         <TableRow>
-                                            <TableCell colSpan={canEdit ? 11 : 10} className="text-center py-8 text-slate-500">
+                                            <TableCell colSpan={11} className="text-center py-8 text-slate-500">
                                                 Không có dữ liệu
                                             </TableCell>
                                         </TableRow>
@@ -447,18 +941,23 @@ export default function ContractPage() {
                                                     <TableCell className="text-slate-800 font-bold text-green-600">
                                                         {formatCurrency(totalValue)}
                                                     </TableCell>
-                                                    {canEdit && (
-                                                        <TableCell className="text-right">
-                                                            <div className="flex justify-end gap-2">
+                                                    <TableCell className="text-right">
+                                                        <div className="flex justify-end gap-2">
+                                                            <Button size="sm" variant="ghost" onClick={() => openCategoryDialog(contract)} title="Danh mục hàng hóa" aria-label="Danh mục hàng hóa" className="text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50">
+                                                                <FileText className="w-4 h-4" />
+                                                            </Button>
+                                                            {canEdit && (
+                                                                <>
                                                                 <Button size="sm" variant="ghost" onClick={() => openEditDialog(contract)} className="text-blue-600 hover:text-blue-700 hover:bg-blue-50">
                                                                     <Pencil className="w-4 h-4" />
                                                                 </Button>
                                                                 <Button size="sm" variant="ghost" onClick={() => handleDelete(contract.id)} className="text-red-600 hover:text-red-700 hover:bg-red-50">
                                                                     <Trash2 className="w-4 h-4" />
                                                                 </Button>
-                                                            </div>
-                                                        </TableCell>
-                                                    )}
+                                                                </>
+                                                            )}
+                                                        </div>
+                                                    </TableCell>
                                                 </TableRow>
                                             );
                                         })

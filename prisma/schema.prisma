@@ -53,6 +53,7 @@ model Contract {
   acceptances     ContractAcceptance[]
   payments        ContractPayment[]
   invoices        Invoice[]
+  goodsCategory   ContractGoodsCategory?
   createdAt       DateTime             @default(now())
   updatedAt       DateTime             @updatedAt
 }
@@ -67,6 +68,57 @@ enum Priority {
   HIGH
   NORMAL
   LOW
+}
+
+enum GoodsCategoryType {
+  MEDICINE
+  SUPPLY
+}
+
+model ContractGoodsCategory {
+  id         String            @id @default(cuid())
+  contractId String            @unique
+  contract   Contract          @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  type       GoodsCategoryType
+  medicines  MedicineItem[]
+  supplies   SupplyItem[]
+  createdAt  DateTime          @default(now())
+  updatedAt  DateTime          @updatedAt
+}
+
+model MedicineItem {
+  id               String                @id @default(cuid())
+  categoryId       String
+  category         ContractGoodsCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  orderNumber      Int
+  drugName         String
+  activeIngredient String
+  concentration    String
+  dosageForm       String
+  route            String
+  unitPrice        Decimal               @db.Decimal(18, 2)
+  quantity         Decimal               @db.Decimal(18, 2)
+  lineTotal        Decimal               @db.Decimal(18, 2)
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+
+  @@index([categoryId, orderNumber])
+}
+
+model SupplyItem {
+  id                   String                @id @default(cuid())
+  categoryId           String
+  category             ContractGoodsCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  orderNumber          Int
+  goodsName            String
+  technicalRequirement String?
+  quantity             Decimal               @db.Decimal(18, 2)
+  unitPrice            Decimal               @db.Decimal(18, 2)
+  lineTotal            Decimal               @db.Decimal(18, 2)
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+
+  @@index([categoryId, orderNumber])
 }
 
 model ContractAppendix {
