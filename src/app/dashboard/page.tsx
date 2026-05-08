@@ -1,23 +1,104 @@
 "use client";
 
+import { useEffect, useState, type ComponentType, type ReactNode } from "react";
 import { useSession } from "next-auth/react";
-import { useEffect, useState } from "react";
+import {
+    Area,
+    AreaChart,
+    Bar,
+    BarChart,
+    CartesianGrid,
+    Cell,
+    Legend,
+    Pie,
+    PieChart,
+    ResponsiveContainer,
+    Tooltip,
+    XAxis,
+    YAxis,
+} from "recharts";
+import {
+    AlertTriangle,
+    Building2,
+    CheckCircle2,
+    Clock3,
+    CreditCard,
+    FileText,
+    Receipt,
+    RefreshCw,
+    ShieldAlert,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Building2, FileText, Receipt, CreditCard, TrendingUp, TrendingDown, Users, Activity } from "lucide-react";
-import { formatCurrency } from "@/lib/dashboard-utils";
 
 const roleLabels: Record<string, string> = {
     ADMIN: "Quản trị viên",
     KHOA_DUOC: "Khoa Dược",
-    KE_TOAN: "Kế Toán",
-    LANH_DAO: "Lãnh Đạo",
+    KE_TOAN: "Kế toán",
+    LANH_DAO: "Lãnh đạo",
+};
+
+const contractStatusLabels: Record<string, string> = {
+    ACTIVE: "Hiệu lực",
+    EXPIRED: "Hết hạn",
+    TERMINATED: "Đã hủy",
+};
+
+const invoiceStatusLabels: Record<string, string> = {
+    PENDING: "Chờ xử lý",
+    PAID: "Đã thanh toán",
+    OVERDUE: "Quá hạn",
+};
+
+const priorityLabels: Record<string, string> = {
+    HIGH: "Cao",
+    NORMAL: "Bình thường",
+    LOW: "Thấp",
+};
+
+const chartColors = {
+    green: "#16a34a",
+    amber: "#d97706",
+    red: "#dc2626",
+    blue: "#2563eb",
+    cyan: "#0891b2",
+    violet: "#7c3aed",
+    slate: "#64748b",
 };
 
 interface DashboardStats {
     companies: { total: number; change: string };
-    contracts: { total: number; change: string; active: number; expired: number; terminated: number };
-    invoices: { total: number; change: string; pending: number; paid: number; overdue: number };
-    payments: { total: string; change: string };
+    contracts: {
+        total: number;
+        change: string;
+        active: number;
+        expired: number;
+        terminated: number;
+        highPriority: number;
+        expiringSoon: number;
+        totalValue: string;
+    };
+    invoices: {
+        total: number;
+        change: string;
+        pending: number;
+        paid: number;
+        overdue: number;
+        totalAmount: string;
+        pendingAmount: string;
+        overdueAmount: string;
+    };
+    payments: {
+        total: string;
+        change: string;
+        currentMonth: string;
+    };
+    risks: {
+        expiringSoonContracts: number;
+        overdueInvoices: number;
+        pendingInvoices: number;
+        highPriorityContracts: number;
+    };
 }
 
 interface ActivityItem {
@@ -33,7 +114,96 @@ interface Analytics {
     invoiceDistribution: Array<{ status: string; count: number }>;
     priorityDistribution: Array<{ priority: string; count: number }>;
     paymentTrends: Array<{ month: string; amount: number }>;
-    topCompanies: Array<{ name: string; contractCount: number }>;
+    contractTrends: Array<{ month: string; count: number; value: number }>;
+    topCompanies: Array<{ name: string; contractCount: number; totalValue: number }>;
+}
+
+interface KpiCardProps {
+    title: string;
+    value: string;
+    caption: string;
+    icon: ComponentType<{ className?: string }>;
+    tone: "blue" | "green" | "amber" | "red" | "violet" | "cyan";
+}
+
+const toneClasses: Record<KpiCardProps["tone"], { bg: string; text: string; border: string }> = {
+    blue: { bg: "bg-blue-50", text: "text-blue-700", border: "border-blue-200" },
+    green: { bg: "bg-green-50", text: "text-green-700", border: "border-green-200" },
+    amber: { bg: "bg-amber-50", text: "text-amber-700", border: "border-amber-200" },
+    red: { bg: "bg-red-50", text: "text-red-700", border: "border-red-200" },
+    violet: { bg: "bg-violet-50", text: "text-violet-700", border: "border-violet-200" },
+    cyan: { bg: "bg-cyan-50", text: "text-cyan-700", border: "border-cyan-200" },
+};
+
+function formatCurrency(value: number | string) {
+    const amount = typeof value === "string" ? Number(value) : value;
+    if (!Number.isFinite(amount)) return "0 ₫";
+
+    return new Intl.NumberFormat("vi-VN", {
+        style: "currency",
+        currency: "VND",
+        maximumFractionDigits: 0,
+    }).format(amount);
+}
+
+function formatCompactCurrency(value: number | string) {
+    const amount = typeof value === "string" ? Number(value) : value;
+    if (!Number.isFinite(amount)) return "0 ₫";
+
+    if (amount >= 1_000_000_000) return `${(amount / 1_000_000_000).toFixed(1)} tỷ`;
+    if (amount >= 1_000_000) return `${(amount / 1_000_000).toFixed(1)} triệu`;
+    return formatCurrency(amount);
+}
+
+function KpiCard({ title, value, caption, icon: Icon, tone }: KpiCardProps) {
+    const toneClass = toneClasses[tone];
+
+    return (
+        <Card className="border-slate-200 bg-white shadow-sm">
+            <CardContent className="p-4">
+                <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 space-y-2">
+                        <p className="text-sm font-medium text-slate-500">{title}</p>
+                        <p className="text-2xl font-semibold text-slate-900">{value}</p>
+                        <p className="text-xs text-slate-500">{caption}</p>
+                    </div>
+                    <div className={`rounded-md border p-2 ${toneClass.bg} ${toneClass.border}`}>
+                        <Icon className={`h-5 w-5 ${toneClass.text}`} />
+                    </div>
+                </div>
+            </CardContent>
+        </Card>
+    );
+}
+
+function ChartCard({
+    title,
+    description,
+    children,
+}: {
+    title: string;
+    description?: string;
+    children: ReactNode;
+}) {
+    return (
+        <Card className="border-slate-200 bg-white shadow-sm">
+            <CardHeader className="pb-3">
+                <CardTitle className="text-base font-semibold text-slate-900">{title}</CardTitle>
+                {description && (
+                    <CardDescription className="text-sm text-slate-500">{description}</CardDescription>
+                )}
+            </CardHeader>
+            <CardContent>{children}</CardContent>
+        </Card>
+    );
+}
+
+function EmptyChart() {
+    return (
+        <div className="flex h-[260px] items-center justify-center rounded-md border border-dashed border-slate-200 text-sm text-slate-500">
+            Chưa có dữ liệu
+        </div>
+    );
 }
 
 export default function DashboardPage() {
@@ -53,7 +223,6 @@ export default function DashboardPage() {
                 setLoading(true);
                 setError(null);
 
-                // Fetch all dashboard data
                 const [statsRes, activitiesRes, analyticsRes] = await Promise.all([
                     fetch("/api/dashboard/stats"),
                     fetch("/api/dashboard/activities"),
@@ -84,301 +253,398 @@ export default function DashboardPage() {
         fetchDashboardData();
     }, []);
 
-    // Loading skeleton
     if (loading) {
         return (
-            <div className="space-y-8">
-                <div className="flex flex-col gap-2">
-                    <div className="h-9 w-64 bg-slate-200 rounded animate-pulse"></div>
-                    <div className="h-6 w-96 bg-slate-100 rounded animate-pulse"></div>
+            <div className="space-y-6">
+                <div className="space-y-2">
+                    <div className="h-8 w-72 animate-pulse rounded bg-slate-200" />
+                    <div className="h-5 w-full max-w-xl animate-pulse rounded bg-slate-100" />
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-                    {[1, 2, 3, 4].map((i) => (
-                        <div key={i} className="h-32 bg-slate-100 rounded-lg animate-pulse"></div>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                    {[1, 2, 3, 4, 5, 6].map((item) => (
+                        <div key={item} className="h-32 animate-pulse rounded-lg bg-slate-100" />
                     ))}
                 </div>
+                <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                    <div className="h-80 animate-pulse rounded-lg bg-slate-100" />
+                    <div className="h-80 animate-pulse rounded-lg bg-slate-100" />
+                </div>
             </div>
         );
     }
 
-    // Error state
-    if (error) {
+    if (error || !stats || !analytics) {
         return (
-            <div className="flex items-center justify-center p-8">
-                <Card className="max-w-md">
-                    <CardContent className="pt-6">
-                        <div className="text-center space-y-4">
-                            <div className="text-red-500 text-5xl">⚠️</div>
-                            <h3 className="text-lg font-semibold text-slate-800">Lỗi tải dữ liệu</h3>
-                            <p className="text-slate-600">{error}</p>
-                            <button
-                                onClick={() => window.location.reload()}
-                                className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
-                            >
-                                Tải lại trang
-                            </button>
+            <div className="flex min-h-[360px] items-center justify-center">
+                <Card className="w-full max-w-md border-slate-200 bg-white">
+                    <CardContent className="space-y-4 p-6 text-center">
+                        <ShieldAlert className="mx-auto h-10 w-10 text-red-600" />
+                        <div>
+                            <h2 className="text-lg font-semibold text-slate-900">Lỗi tải dữ liệu</h2>
+                            <p className="mt-1 text-sm text-slate-500">{error || "Dữ liệu dashboard chưa sẵn sàng."}</p>
                         </div>
+                        <Button onClick={() => window.location.reload()} className="bg-blue-600 text-white hover:bg-blue-700">
+                            <RefreshCw className="mr-2 h-4 w-4" />
+                            Tải lại
+                        </Button>
                     </CardContent>
                 </Card>
             </div>
         );
     }
 
-    const statsCards = stats ? [
-        {
-            title: "Công ty",
-            value: stats.companies.total.toString(),
-            change: stats.companies.change,
-            icon: Building2,
-            color: "from-blue-500 to-cyan-500",
-            bgColor: "bg-blue-500/10",
-            iconColor: "text-blue-500",
-        },
-        {
-            title: "Hợp đồng",
-            value: stats.contracts.total.toString(),
-            change: stats.contracts.change,
-            icon: FileText,
-            color: "from-purple-500 to-pink-500",
-            bgColor: "bg-purple-500/10",
-            iconColor: "text-purple-500",
-        },
-        {
-            title: "Hóa đơn",
-            value: stats.invoices.total.toString(),
-            change: stats.invoices.change,
-            icon: Receipt,
-            color: "from-orange-500 to-red-500",
-            bgColor: "bg-orange-500/10",
-            iconColor: "text-orange-500",
-        },
-        {
-            title: "Thanh toán",
-            value: formatCurrency(stats.payments.total),
-            change: stats.payments.change,
-            icon: CreditCard,
-            color: "from-green-500 to-emerald-500",
-            bgColor: "bg-green-500/10",
-            iconColor: "text-green-500",
-        },
-    ] : [];
+    const contractStatusData = [
+        { name: contractStatusLabels.ACTIVE, value: stats.contracts.active, color: chartColors.green },
+        { name: contractStatusLabels.EXPIRED, value: stats.contracts.expired, color: chartColors.red },
+        { name: contractStatusLabels.TERMINATED, value: stats.contracts.terminated, color: chartColors.slate },
+    ].filter((item) => item.value > 0);
+
+    const invoiceStatusData = [
+        { name: invoiceStatusLabels.PENDING, value: stats.invoices.pending, color: chartColors.amber },
+        { name: invoiceStatusLabels.PAID, value: stats.invoices.paid, color: chartColors.blue },
+        { name: invoiceStatusLabels.OVERDUE, value: stats.invoices.overdue, color: chartColors.red },
+    ].filter((item) => item.value > 0);
+
+    const priorityData = analytics.priorityDistribution.map((item) => ({
+        name: priorityLabels[item.priority] || item.priority,
+        count: item.count,
+    }));
+
+    const topCompanyMax = Math.max(...analytics.topCompanies.map((item) => item.contractCount), 1);
+    const today = new Intl.DateTimeFormat("vi-VN", {
+        dateStyle: "medium",
+        timeStyle: "short",
+    }).format(new Date());
 
     return (
-        <div className="space-y-8">
-            {/* Header */}
-            <div className="flex flex-col gap-2">
-                <h1 className="text-3xl font-bold text-slate-800">
-                    Xin chào, {userName}! 👋
-                </h1>
-                <p className="text-slate-600">
-                    Chào mừng bạn đến với hệ thống Quản lý Công Nợ Nhà Thuốc. Vai trò của bạn:{" "}
-                    <span className="text-blue-600 font-medium">{roleLabels[userRole]}</span>
-                </p>
+        <div className="space-y-6">
+            <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
+                <div className="space-y-2">
+                    <p className="text-sm font-medium text-slate-500">Dashboard tổng quan</p>
+                    <h1 className="text-2xl font-semibold text-slate-900">
+                        Quản lý công nợ nhà thuốc
+                    </h1>
+                    <p className="max-w-3xl text-sm text-slate-500">
+                        Xin chào {userName}. Vai trò:{" "}
+                        <span className="font-medium text-slate-700">{roleLabels[userRole] || userRole}</span>.
+                    </p>
+                </div>
+                <div className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-500">
+                    Cập nhật: {today}
+                </div>
             </div>
 
-            {/* Stats Grid */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-                {statsCards.map((stat) => {
-                    const Icon = stat.icon;
-                    const isPositive = stat.change.startsWith("+");
-                    const TrendIcon = isPositive ? TrendingUp : TrendingDown;
-
-                    return (
-                        <Card
-                            key={stat.title}
-                            className="bg-white/80 border-white/50 shadow-sm backdrop-blur-sm hover:shadow-md hover:bg-white transition-all duration-300 hover:scale-[1.02] cursor-pointer"
-                        >
-                            <CardContent className="p-6">
-                                <div className="flex items-start justify-between">
-                                    <div className="space-y-2">
-                                        <p className="text-sm text-slate-500">{stat.title}</p>
-                                        <p className="text-3xl font-bold text-slate-800">{stat.value}</p>
-                                        <div className="flex items-center gap-1">
-                                            <TrendIcon className={`w-4 h-4 ${isPositive ? "text-emerald-500" : "text-red-500"}`} />
-                                            <span className={`text-sm ${isPositive ? "text-emerald-500" : "text-red-500"}`}>
-                                                {stat.change}
-                                            </span>
-                                            <span className="text-xs text-slate-400">so với tháng trước</span>
-                                        </div>
-                                    </div>
-                                    <div className={`p-3 rounded-xl ${stat.bgColor}`}>
-                                        <Icon className={`w-6 h-6 ${stat.iconColor}`} />
-                                    </div>
-                                </div>
-                            </CardContent>
-                        </Card>
-                    );
-                })}
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                <KpiCard
+                    title="Tổng giá trị hợp đồng"
+                    value={formatCompactCurrency(stats.contracts.totalValue)}
+                    caption={`${stats.contracts.total} hợp đồng, ${stats.contracts.change} trong tháng`}
+                    icon={FileText}
+                    tone="blue"
+                />
+                <KpiCard
+                    title="Thanh toán đề nghị"
+                    value={formatCompactCurrency(stats.payments.total)}
+                    caption={`${stats.payments.change} so với tháng trước`}
+                    icon={CreditCard}
+                    tone="green"
+                />
+                <KpiCard
+                    title="Hợp đồng hiệu lực"
+                    value={stats.contracts.active.toString()}
+                    caption={`${stats.contracts.expiringSoon} hợp đồng sắp hết hạn 30 ngày`}
+                    icon={CheckCircle2}
+                    tone="cyan"
+                />
+                <KpiCard
+                    title="Hợp đồng hết hạn"
+                    value={stats.contracts.expired.toString()}
+                    caption={`${stats.contracts.highPriority} hợp đồng ưu tiên cao`}
+                    icon={AlertTriangle}
+                    tone="red"
+                />
+                <KpiCard
+                    title="Hóa đơn chờ xử lý"
+                    value={stats.invoices.pending.toString()}
+                    caption={formatCompactCurrency(stats.invoices.pendingAmount)}
+                    icon={Clock3}
+                    tone="amber"
+                />
+                <KpiCard
+                    title="Hóa đơn quá hạn"
+                    value={stats.invoices.overdue.toString()}
+                    caption={formatCompactCurrency(stats.invoices.overdueAmount)}
+                    icon={Receipt}
+                    tone="violet"
+                />
             </div>
 
-            {/* Analytics Cards Row */}
-            {stats && analytics && (
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                    {/* Contract Status Breakdown */}
-                    <Card className="bg-white/70 border-white/50 shadow-sm backdrop-blur-sm">
-                        <CardHeader>
-                            <CardTitle className="text-slate-800 flex items-center gap-2">
-                                <FileText className="w-5 h-5 text-purple-500" />
-                                Trạng thái hợp đồng
-                            </CardTitle>
-                        </CardHeader>
-                        <CardContent className="space-y-3">
-                            <div className="p-3 bg-green-50 rounded-lg border border-green-200">
-                                <div className="flex justify-between items-center">
-                                    <span className="text-sm text-green-700 font-medium">Đang hiệu lực</span>
-                                    <span className="text-lg font-bold text-green-700">{stats.contracts.active}</span>
-                                </div>
-                            </div>
-                            <div className="p-3 bg-red-50 rounded-lg border border-red-200">
-                                <div className="flex justify-between items-center">
-                                    <span className="text-sm text-red-700 font-medium">Hết hạn</span>
-                                    <span className="text-lg font-bold text-red-700">{stats.contracts.expired}</span>
-                                </div>
-                            </div>
-                            <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
-                                <div className="flex justify-between items-center">
-                                    <span className="text-sm text-gray-700 font-medium">Đã chấm dứt</span>
-                                    <span className="text-lg font-bold text-gray-700">{stats.contracts.terminated}</span>
-                                </div>
-                            </div>
-                        </CardContent>
-                    </Card>
+            <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+                <ChartCard
+                    title="Dòng thanh toán 6 tháng"
+                    description="Tổng giá trị thanh toán đề nghị theo tháng"
+                >
+                    {analytics.paymentTrends.some((item) => item.amount > 0) ? (
+                        <div className="h-[300px]">
+                            <ResponsiveContainer width="100%" height="100%">
+                                <AreaChart data={analytics.paymentTrends} margin={{ left: 8, right: 16, top: 12 }}>
+                                    <defs>
+                                        <linearGradient id="paymentFill" x1="0" x2="0" y1="0" y2="1">
+                                            <stop offset="5%" stopColor={chartColors.blue} stopOpacity={0.24} />
+                                            <stop offset="95%" stopColor={chartColors.blue} stopOpacity={0} />
+                                        </linearGradient>
+                                    </defs>
+                                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                                    <XAxis dataKey="month" tickLine={false} axisLine={false} fontSize={12} />
+                                    <YAxis
+                                        tickLine={false}
+                                        axisLine={false}
+                                        fontSize={12}
+                                        tickFormatter={(value) => formatCompactCurrency(Number(value))}
+                                    />
+                                    <Tooltip
+                                        formatter={(value) => [formatCurrency(Number(value)), "Thanh toán"]}
+                                        labelStyle={{ color: "#0f172a" }}
+                                    />
+                                    <Area
+                                        type="monotone"
+                                        dataKey="amount"
+                                        stroke={chartColors.blue}
+                                        fill="url(#paymentFill)"
+                                        strokeWidth={2}
+                                    />
+                                </AreaChart>
+                            </ResponsiveContainer>
+                        </div>
+                    ) : (
+                        <EmptyChart />
+                    )}
+                </ChartCard>
 
-                    {/* Invoice Status Breakdown */}
-                    <Card className="bg-white/70 border-white/50 shadow-sm backdrop-blur-sm">
-                        <CardHeader>
-                            <CardTitle className="text-slate-800 flex items-center gap-2">
-                                <Receipt className="w-5 h-5 text-orange-500" />
-                                Trạng thái hóa đơn
-                            </CardTitle>
-                        </CardHeader>
-                        <CardContent className="space-y-3">
-                            <div className="p-3 bg-yellow-50 rounded-lg border border-yellow-200">
-                                <div className="flex justify-between items-center">
-                                    <span className="text-sm text-yellow-700 font-medium">Chờ xử lý</span>
-                                    <span className="text-lg font-bold text-yellow-700">{stats.invoices.pending}</span>
-                                </div>
-                            </div>
-                            <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
-                                <div className="flex justify-between items-center">
-                                    <span className="text-sm text-blue-700 font-medium">Đã thanh toán</span>
-                                    <span className="text-lg font-bold text-blue-700">{stats.invoices.paid}</span>
-                                </div>
-                            </div>
-                            <div className="p-3 bg-orange-50 rounded-lg border border-orange-200">
-                                <div className="flex justify-between items-center">
-                                    <span className="text-sm text-orange-700 font-medium">Quá hạn</span>
-                                    <span className="text-lg font-bold text-orange-700">{stats.invoices.overdue}</span>
-                                </div>
-                            </div>
-                        </CardContent>
-                    </Card>
-
-                    {/* Top Companies */}
-                    <Card className="bg-white/70 border-white/50 shadow-sm backdrop-blur-sm">
-                        <CardHeader>
-                            <CardTitle className="text-slate-800 flex items-center gap-2">
-                                <Building2 className="w-5 h-5 text-blue-500" />
-                                Top công ty
-                            </CardTitle>
-                            <CardDescription className="text-slate-500">
-                                Theo số lượng hợp đồng
-                            </CardDescription>
-                        </CardHeader>
-                        <CardContent className="space-y-2">
-                            {analytics.topCompanies.length > 0 ? (
-                                analytics.topCompanies.map((company, index) => (
-                                    <div
-                                        key={index}
-                                        className="p-2 bg-white/60 rounded-lg border border-slate-100 flex items-center justify-between"
+                <ChartCard title="Trạng thái hợp đồng" description="Cơ cấu hợp đồng theo hiệu lực">
+                    {contractStatusData.length > 0 ? (
+                        <div className="h-[300px]">
+                            <ResponsiveContainer width="100%" height="100%">
+                                <PieChart>
+                                    <Pie
+                                        data={contractStatusData}
+                                        dataKey="value"
+                                        innerRadius={62}
+                                        outerRadius={92}
+                                        paddingAngle={3}
                                     >
-                                        <div className="flex items-center gap-2">
-                                            <span className="w-6 h-6 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-xs font-bold">
+                                        {contractStatusData.map((entry) => (
+                                            <Cell key={entry.name} fill={entry.color} />
+                                        ))}
+                                    </Pie>
+                                    <Tooltip formatter={(value) => [`${value} hợp đồng`, "Số lượng"]} />
+                                    <Legend verticalAlign="bottom" height={32} />
+                                </PieChart>
+                            </ResponsiveContainer>
+                        </div>
+                    ) : (
+                        <EmptyChart />
+                    )}
+                </ChartCard>
+
+                <ChartCard title="Trạng thái hóa đơn" description="Cơ cấu hóa đơn theo xử lý">
+                    {invoiceStatusData.length > 0 ? (
+                        <div className="h-[300px]">
+                            <ResponsiveContainer width="100%" height="100%">
+                                <PieChart>
+                                    <Pie
+                                        data={invoiceStatusData}
+                                        dataKey="value"
+                                        innerRadius={62}
+                                        outerRadius={92}
+                                        paddingAngle={3}
+                                    >
+                                        {invoiceStatusData.map((entry) => (
+                                            <Cell key={entry.name} fill={entry.color} />
+                                        ))}
+                                    </Pie>
+                                    <Tooltip formatter={(value) => [`${value} hóa đơn`, "Số lượng"]} />
+                                    <Legend verticalAlign="bottom" height={32} />
+                                </PieChart>
+                            </ResponsiveContainer>
+                        </div>
+                    ) : (
+                        <EmptyChart />
+                    )}
+                </ChartCard>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                <ChartCard
+                    title="Hợp đồng tạo mới 6 tháng"
+                    description="Số lượng hợp đồng và giá trị phát sinh"
+                >
+                    {analytics.contractTrends.some((item) => item.count > 0 || item.value > 0) ? (
+                        <div className="h-[300px]">
+                            <ResponsiveContainer width="100%" height="100%">
+                                <BarChart data={analytics.contractTrends} margin={{ left: 8, right: 16, top: 12 }}>
+                                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                                    <XAxis dataKey="month" tickLine={false} axisLine={false} fontSize={12} />
+                                    <YAxis yAxisId="left" tickLine={false} axisLine={false} fontSize={12} />
+                                    <YAxis
+                                        yAxisId="right"
+                                        orientation="right"
+                                        tickLine={false}
+                                        axisLine={false}
+                                        fontSize={12}
+                                        tickFormatter={(value) => formatCompactCurrency(Number(value))}
+                                    />
+                                    <Tooltip
+                                        formatter={(value, name) => (
+                                            name === "value"
+                                                ? [formatCurrency(Number(value)), "Giá trị"]
+                                                : [`${value} hợp đồng`, "Số lượng"]
+                                        )}
+                                    />
+                                    <Legend />
+                                    <Bar yAxisId="left" dataKey="count" name="Số lượng" fill={chartColors.cyan} radius={[4, 4, 0, 0]} />
+                                    <Bar yAxisId="right" dataKey="value" name="Giá trị" fill={chartColors.violet} radius={[4, 4, 0, 0]} />
+                                </BarChart>
+                            </ResponsiveContainer>
+                        </div>
+                    ) : (
+                        <EmptyChart />
+                    )}
+                </ChartCard>
+
+                <ChartCard title="Hợp đồng theo ưu tiên" description="Mức độ ưu tiên đang được gán">
+                    {priorityData.length > 0 ? (
+                        <div className="h-[300px]">
+                            <ResponsiveContainer width="100%" height="100%">
+                                <BarChart data={priorityData} layout="vertical" margin={{ left: 16, right: 24, top: 12 }}>
+                                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                                    <XAxis type="number" allowDecimals={false} tickLine={false} axisLine={false} />
+                                    <YAxis dataKey="name" type="category" tickLine={false} axisLine={false} width={90} />
+                                    <Tooltip formatter={(value) => [`${value} hợp đồng`, "Số lượng"]} />
+                                    <Bar dataKey="count" fill={chartColors.amber} radius={[0, 4, 4, 0]} />
+                                </BarChart>
+                            </ResponsiveContainer>
+                        </div>
+                    ) : (
+                        <EmptyChart />
+                    )}
+                </ChartCard>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+                <ChartCard title="Cảnh báo cần chú ý" description="Các nhóm việc cần theo dõi trước">
+                    <div className="space-y-3">
+                        <div className="rounded-md border border-red-200 bg-red-50 p-3">
+                            <div className="flex items-center justify-between gap-3">
+                                <span className="text-sm font-medium text-red-700">Hóa đơn quá hạn</span>
+                                <span className="text-lg font-semibold text-red-700">{stats.risks.overdueInvoices}</span>
+                            </div>
+                        </div>
+                        <div className="rounded-md border border-amber-200 bg-amber-50 p-3">
+                            <div className="flex items-center justify-between gap-3">
+                                <span className="text-sm font-medium text-amber-700">Hóa đơn chờ xử lý</span>
+                                <span className="text-lg font-semibold text-amber-700">{stats.risks.pendingInvoices}</span>
+                            </div>
+                        </div>
+                        <div className="rounded-md border border-blue-200 bg-blue-50 p-3">
+                            <div className="flex items-center justify-between gap-3">
+                                <span className="text-sm font-medium text-blue-700">Hợp đồng sắp hết hạn</span>
+                                <span className="text-lg font-semibold text-blue-700">{stats.risks.expiringSoonContracts}</span>
+                            </div>
+                        </div>
+                        <div className="rounded-md border border-violet-200 bg-violet-50 p-3">
+                            <div className="flex items-center justify-between gap-3">
+                                <span className="text-sm font-medium text-violet-700">Hợp đồng ưu tiên cao</span>
+                                <span className="text-lg font-semibold text-violet-700">{stats.risks.highPriorityContracts}</span>
+                            </div>
+                        </div>
+                    </div>
+                </ChartCard>
+
+                <ChartCard title="Top công ty" description="Theo số lượng hợp đồng">
+                    <div className="space-y-4">
+                        {analytics.topCompanies.length > 0 ? (
+                            analytics.topCompanies.map((company, index) => (
+                                <div key={company.name} className="space-y-2">
+                                    <div className="flex items-center justify-between gap-3 text-sm">
+                                        <div className="flex min-w-0 items-center gap-2">
+                                            <span className="flex h-6 w-6 items-center justify-center rounded-md bg-blue-50 text-xs font-semibold text-blue-700">
                                                 {index + 1}
                                             </span>
-                                            <span className="text-sm text-slate-700">{company.name}</span>
+                                            <span className="truncate font-medium text-slate-700">{company.name}</span>
                                         </div>
-                                        <span className="text-sm font-semibold text-blue-600">{company.contractCount}</span>
+                                        <span className="shrink-0 text-slate-500">{company.contractCount} HĐ</span>
                                     </div>
-                                ))
-                            ) : (
-                                <p className="text-sm text-slate-500 text-center py-4">Chưa có dữ liệu</p>
-                            )}
-                        </CardContent>
-                    </Card>
-                </div>
-            )}
+                                    <div className="h-2 rounded-full bg-slate-100">
+                                        <div
+                                            className="h-2 rounded-full bg-blue-600"
+                                            style={{ width: `${Math.max(8, (company.contractCount / topCompanyMax) * 100)}%` }}
+                                        />
+                                    </div>
+                                    <p className="text-xs text-slate-500">{formatCompactCurrency(company.totalValue)}</p>
+                                </div>
+                            ))
+                        ) : (
+                            <div className="rounded-md border border-dashed border-slate-200 py-8 text-center text-sm text-slate-500">
+                                Chưa có dữ liệu công ty
+                            </div>
+                        )}
+                    </div>
+                </ChartCard>
 
-            {/* Bottom Row */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {/* Quick Guide */}
-                <Card className="bg-white/70 border-white/50 shadow-sm backdrop-blur-sm">
-                    <CardHeader>
-                        <CardTitle className="text-slate-800 flex items-center gap-2">
-                            <Users className="w-5 h-5 text-blue-500" />
-                            Hướng dẫn nhanh
-                        </CardTitle>
-                        <CardDescription className="text-slate-500">
-                            Một số thao tác thường dùng trong hệ thống
-                        </CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-3">
-                        <div className="p-3 bg-white/60 rounded-lg border border-slate-100">
-                            <p className="text-sm text-slate-600">
-                                <span className="text-blue-600 font-medium">Khoa Dược:</span> Có quyền thêm/sửa hợp đồng, phụ lục, nghiệm thu, thanh toán và hóa đơn.
-                            </p>
-                        </div>
-                        <div className="p-3 bg-white/50 rounded-lg border border-slate-100">
-                            <p className="text-sm text-slate-600">
-                                <span className="text-emerald-600 font-medium">Kế Toán:</span> Xem và theo dõi các công nợ, thanh toán.
-                            </p>
-                        </div>
-                        <div className="p-3 bg-white/50 rounded-lg border border-slate-100">
-                            <p className="text-sm text-slate-600">
-                                <span className="text-purple-600 font-medium">Lãnh Đạo:</span> Xem báo cáo tổng hợp và giám sát.
-                            </p>
-                        </div>
-                        <div className="p-3 bg-white/50 rounded-lg border border-slate-100">
-                            <p className="text-sm text-slate-600">
-                                <span className="text-red-500 font-medium">Admin:</span> Quản lý tài khoản người dùng và toàn bộ hệ thống.
-                            </p>
-                        </div>
-                    </CardContent>
-                </Card>
-
-                {/* Recent Activities */}
-                <Card className="bg-white/70 border-white/50 shadow-sm backdrop-blur-sm">
-                    <CardHeader>
-                        <CardTitle className="text-slate-800 flex items-center gap-2">
-                            <Activity className="w-5 h-5 text-emerald-500" />
-                            Hoạt động gần đây
-                        </CardTitle>
-                        <CardDescription className="text-slate-500">
-                            Các cập nhật mới nhất trong hệ thống
-                        </CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
+                <ChartCard title="Hoạt động gần đây" description="Các cập nhật mới nhất trong hệ thống">
+                    <div className="space-y-3">
                         {activities.length > 0 ? (
-                            activities.slice(0, 4).map((activity) => (
-                                <div
-                                    key={activity.id}
-                                    className="flex items-center gap-4 p-3 bg-white/60 rounded-lg border border-slate-100"
-                                >
-                                    <div className="w-2 h-2 rounded-full bg-emerald-400 flex-shrink-0" />
-                                    <div className="flex-1 min-w-0">
-                                        <p className="text-sm text-slate-700 truncate">{activity.action}</p>
+                            activities.slice(0, 6).map((activity) => (
+                                <div key={activity.id} className="flex items-start gap-3 rounded-md border border-slate-100 bg-slate-50 p-3">
+                                    <div className="mt-1 rounded-md bg-white p-1.5 text-slate-500">
+                                        {activity.type === "payment" ? (
+                                            <CreditCard className="h-4 w-4" />
+                                        ) : activity.type === "invoice" ? (
+                                            <Receipt className="h-4 w-4" />
+                                        ) : activity.type === "company" ? (
+                                            <Building2 className="h-4 w-4" />
+                                        ) : (
+                                            <FileText className="h-4 w-4" />
+                                        )}
+                                    </div>
+                                    <div className="min-w-0 flex-1">
+                                        <p className="truncate text-sm font-medium text-slate-700">{activity.action}</p>
                                         <p className="text-xs text-slate-500">
-                                            {activity.user} • {activity.time}
+                                            {activity.user} · {activity.time}
                                         </p>
                                     </div>
                                 </div>
                             ))
                         ) : (
-                            <p className="text-sm text-slate-500 text-center py-4">Chưa có hoạt động nào</p>
+                            <div className="rounded-md border border-dashed border-slate-200 py-8 text-center text-sm text-slate-500">
+                                Chưa có hoạt động
+                            </div>
                         )}
-                    </CardContent>
-                </Card>
+                    </div>
+                </ChartCard>
             </div>
+
+            <Card className="border-slate-200 bg-white shadow-sm">
+                <CardContent className="grid grid-cols-1 gap-4 p-4 md:grid-cols-4">
+                    <div className="rounded-md bg-slate-50 p-3">
+                        <p className="text-xs text-slate-500">Công ty</p>
+                        <p className="mt-1 text-lg font-semibold text-slate-900">{stats.companies.total}</p>
+                    </div>
+                    <div className="rounded-md bg-slate-50 p-3">
+                        <p className="text-xs text-slate-500">Tổng hóa đơn</p>
+                        <p className="mt-1 text-lg font-semibold text-slate-900">{stats.invoices.total}</p>
+                    </div>
+                    <div className="rounded-md bg-slate-50 p-3">
+                        <p className="text-xs text-slate-500">Giá trị hóa đơn</p>
+                        <p className="mt-1 text-lg font-semibold text-slate-900">{formatCompactCurrency(stats.invoices.totalAmount)}</p>
+                    </div>
+                    <div className="rounded-md bg-slate-50 p-3">
+                        <p className="text-xs text-slate-500">Thanh toán tháng này</p>
+                        <p className="mt-1 text-lg font-semibold text-slate-900">{formatCompactCurrency(stats.payments.currentMonth)}</p>
+                    </div>
+                </CardContent>
+            </Card>
         </div>
     );
 }

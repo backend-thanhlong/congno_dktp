@@ -62,6 +62,25 @@ export async function GET() {
         const terminatedContracts = await prisma.contract.count({
             where: { status: "TERMINATED" },
         });
+        const highPriorityContracts = await prisma.contract.count({
+            where: { priority: "HIGH" },
+        });
+        const expiringSoonDate = new Date(now);
+        expiringSoonDate.setDate(expiringSoonDate.getDate() + 30);
+        const expiringSoonContracts = await prisma.contract.count({
+            where: {
+                status: "ACTIVE",
+                expiryDate: {
+                    gte: now,
+                    lte: expiringSoonDate,
+                },
+            },
+        });
+        const totalContractValueResult = await prisma.contract.aggregate({
+            _sum: {
+                value: true,
+            },
+        });
 
         // Get invoices statistics
         const totalInvoices = await prisma.invoice.count();
@@ -90,6 +109,23 @@ export async function GET() {
         });
         const overdueInvoices = await prisma.invoice.count({
             where: { status: "OVERDUE" },
+        });
+        const totalInvoiceAmountResult = await prisma.invoice.aggregate({
+            _sum: {
+                totalAmount: true,
+            },
+        });
+        const pendingInvoiceAmountResult = await prisma.invoice.aggregate({
+            where: { status: "PENDING" },
+            _sum: {
+                totalAmount: true,
+            },
+        });
+        const overdueInvoiceAmountResult = await prisma.invoice.aggregate({
+            where: { status: "OVERDUE" },
+            _sum: {
+                totalAmount: true,
+            },
         });
 
         // Get payment statistics
@@ -125,6 +161,10 @@ export async function GET() {
         const totalPayments = totalPaymentsResult._sum.requestedAmount || 0;
         const paymentsThisMonth = paymentsThisMonthResult._sum.requestedAmount || 0;
         const paymentsLastMonth = paymentsLastMonthResult._sum.requestedAmount || 0;
+        const totalContractValue = totalContractValueResult._sum.value || 0;
+        const totalInvoiceAmount = totalInvoiceAmountResult._sum.totalAmount || 0;
+        const pendingInvoiceAmount = pendingInvoiceAmountResult._sum.totalAmount || 0;
+        const overdueInvoiceAmount = overdueInvoiceAmountResult._sum.totalAmount || 0;
 
         // Calculate changes
         const companiesChange = companiesThisMonth - companiesLastMonth;
@@ -132,8 +172,8 @@ export async function GET() {
         const invoicesChange = invoicesThisMonth - invoicesLastMonth;
 
         const paymentsChangePercent = Number(paymentsLastMonth) > 0
-            ? ((Number(paymentsThisMonth) - Number(paymentsLastMonth)) / Number(paymentsLastMonth) * 100).toFixed(1)
-            : "0";
+            ? ((Number(paymentsThisMonth) - Number(paymentsLastMonth)) / Number(paymentsLastMonth) * 100)
+            : 0;
 
         return NextResponse.json({
             companies: {
@@ -146,6 +186,9 @@ export async function GET() {
                 active: activeContracts,
                 expired: expiredContracts,
                 terminated: terminatedContracts,
+                highPriority: highPriorityContracts,
+                expiringSoon: expiringSoonContracts,
+                totalValue: totalContractValue.toString(),
             },
             invoices: {
                 total: totalInvoices,
@@ -153,10 +196,22 @@ export async function GET() {
                 pending: pendingInvoices,
                 paid: paidInvoices,
                 overdue: overdueInvoices,
+                totalAmount: totalInvoiceAmount.toString(),
+                pendingAmount: pendingInvoiceAmount.toString(),
+                overdueAmount: overdueInvoiceAmount.toString(),
             },
             payments: {
                 total: totalPayments.toString(),
-                change: paymentsChangePercent >= "0" ? `+${paymentsChangePercent}%` : `${paymentsChangePercent}%`,
+                change: paymentsChangePercent >= 0
+                    ? `+${paymentsChangePercent.toFixed(1)}%`
+                    : `${paymentsChangePercent.toFixed(1)}%`,
+                currentMonth: paymentsThisMonth.toString(),
+            },
+            risks: {
+                expiringSoonContracts,
+                overdueInvoices,
+                pendingInvoices,
+                highPriorityContracts,
             },
         });
     } catch (error) {

@@ -10,6 +10,25 @@ export async function GET() {
             return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
         }
 
+        const formatMonthKey = (date: Date) => (
+            date.toLocaleDateString("vi-VN", {
+                year: "numeric",
+                month: "2-digit",
+            })
+        );
+
+        const lastSixMonths = Array.from({ length: 6 }, (_, index) => {
+            const date = new Date();
+            date.setMonth(date.getMonth() - (5 - index));
+            date.setDate(1);
+
+            return {
+                key: formatMonthKey(date),
+                start: new Date(date.getFullYear(), date.getMonth(), 1),
+                end: new Date(date.getFullYear(), date.getMonth() + 1, 0, 23, 59, 59, 999),
+            };
+        });
+
         // Contract status distribution
         const contractStats = await prisma.contract.groupBy({
             by: ["status"],
@@ -50,8 +69,7 @@ export async function GET() {
         }));
 
         // Monthly payment trends (last 6 months)
-        const sixMonthsAgo = new Date();
-        sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+        const sixMonthsAgo = lastSixMonths[0].start;
 
         const payments = await prisma.contractPayment.findMany({
             where: {
@@ -68,32 +86,56 @@ export async function GET() {
         // Group by month
         const monthlyTrends: { [key: string]: number } = {};
         payments.forEach((payment) => {
-            const month = new Date(payment.paymentDate).toLocaleDateString("vi-VN", {
-                year: "numeric",
-                month: "2-digit",
-            });
+            const month = formatMonthKey(new Date(payment.paymentDate));
             if (!monthlyTrends[month]) {
                 monthlyTrends[month] = 0;
             }
             monthlyTrends[month] += Number(payment.requestedAmount);
         });
 
-        const paymentTrends = Object.entries(monthlyTrends)
-            .map(([month, amount]) => ({
-                month,
-                amount,
-            }))
-            .sort((a, b) => {
-                const [monthA, yearA] = a.month.split("/");
-                const [monthB, yearB] = b.month.split("/");
-                return new Date(`${yearA}-${monthA}`).getTime() - new Date(`${yearB}-${monthB}`).getTime();
-            });
+        const paymentTrends = lastSixMonths.map((month) => ({
+            month: month.key,
+            amount: monthlyTrends[month.key] || 0,
+        }));
+
+        const contracts = await prisma.contract.findMany({
+            where: {
+                createdAt: {
+                    gte: sixMonthsAgo,
+                },
+            },
+            select: {
+                createdAt: true,
+                value: true,
+            },
+        });
+
+        const monthlyContracts: { [key: string]: { count: number; value: number } } = {};
+        contracts.forEach((contract) => {
+            const month = formatMonthKey(new Date(contract.createdAt));
+            if (!monthlyContracts[month]) {
+                monthlyContracts[month] = { count: 0, value: 0 };
+            }
+            monthlyContracts[month].count += 1;
+            monthlyContracts[month].value += Number(contract.value);
+        });
+
+        const contractTrends = lastSixMonths.map((month) => ({
+            month: month.key,
+            count: monthlyContracts[month.key]?.count || 0,
+            value: monthlyContracts[month.key]?.value || 0,
+        }));
 
         // Top companies by contract count
         const topCompanies = await prisma.company.findMany({
             select: {
                 id: true,
                 name: true,
+                contracts: {
+                    select: {
+                        value: true,
+                    },
+                },
                 _count: {
                     select: {
                         contracts: true,
@@ -111,6 +153,8 @@ export async function GET() {
         const companyRanking = topCompanies.map((company) => ({
             name: company.name,
             contractCount: company._count.contracts,
+            totalValue: company.contracts
+                .reduce((sum, contract) => sum + Number(contract.value), 0),
         }));
 
         return NextResponse.json({
@@ -118,6 +162,7 @@ export async function GET() {
             invoiceDistribution,
             priorityDistribution,
             paymentTrends,
+            contractTrends,
             topCompanies: companyRanking,
         });
     } catch (error) {
