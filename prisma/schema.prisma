@@ -87,20 +87,27 @@ model ContractGoodsCategory {
 }
 
 model MedicineItem {
-  id               String                @id @default(cuid())
-  categoryId       String
-  category         ContractGoodsCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
-  orderNumber      Int
-  drugName         String
-  activeIngredient String
-  concentration    String
-  dosageForm       String
-  route            String
-  unitPrice        Decimal               @db.Decimal(18, 2)
-  quantity         Decimal               @db.Decimal(18, 2)
-  lineTotal        Decimal               @db.Decimal(18, 2)
-  createdAt        DateTime              @default(now())
-  updatedAt        DateTime              @updatedAt
+  id                 String                @id @default(cuid())
+  categoryId         String
+  category           ContractGoodsCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  orderNumber        Int
+  bidNoticeOrder     String?
+  drugName           String
+  activeIngredient   String
+  concentration      String
+  unit               String?
+  dosageForm         String
+  route              String
+  technicalGroup     String?
+  registrationNumber String?
+  manufacturer       String?
+  countryOfOrigin    String?
+  packaging          String?
+  unitPrice          Decimal               @db.Decimal(18, 2)
+  quantity           Decimal               @db.Decimal(18, 2)
+  lineTotal          Decimal               @db.Decimal(18, 2)
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
 
   @@index([categoryId, orderNumber])
 }

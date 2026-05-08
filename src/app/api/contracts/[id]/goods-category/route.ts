@@ -6,11 +6,18 @@ type GoodsCategoryType = "MEDICINE" | "SUPPLY";
 
 type MedicineCreateInput = {
     orderNumber: number;
+    bidNoticeOrder: string | null;
     drugName: string;
     activeIngredient: string;
     concentration: string;
+    unit: string | null;
     dosageForm: string;
     route: string;
+    technicalGroup: string | null;
+    registrationNumber: string | null;
+    manufacturer: string | null;
+    countryOfOrigin: string | null;
+    packaging: string | null;
     unitPrice: number;
     quantity: number;
     lineTotal: number;
@@ -142,11 +149,18 @@ function parseMedicineItems(items: Record<string, unknown>[]): MedicineCreateInp
 
         return {
             orderNumber: readOrderNumber(item.orderNumber, "orderNumber"),
+            bidNoticeOrder: readOptionalString(item.bidNoticeOrder, "bidNoticeOrder"),
             drugName: readRequiredString(item.drugName, "drugName"),
             activeIngredient: readRequiredString(item.activeIngredient, "activeIngredient"),
             concentration: readRequiredString(item.concentration, "concentration"),
+            unit: readOptionalString(item.unit, "unit"),
             dosageForm: readRequiredString(item.dosageForm, "dosageForm"),
             route: readRequiredString(item.route, "route"),
+            technicalGroup: readOptionalString(item.technicalGroup, "technicalGroup"),
+            registrationNumber: readOptionalString(item.registrationNumber, "registrationNumber"),
+            manufacturer: readOptionalString(item.manufacturer, "manufacturer"),
+            countryOfOrigin: readOptionalString(item.countryOfOrigin, "countryOfOrigin"),
+            packaging: readOptionalString(item.packaging, "packaging"),
             unitPrice,
             quantity,
             lineTotal: roundMoney(unitPrice * quantity),

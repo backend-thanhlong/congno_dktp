@@ -51,11 +51,18 @@ type GoodsCategoryType = "MEDICINE" | "SUPPLY";
 interface MedicineItemResponse {
     id: string;
     orderNumber: number;
+    bidNoticeOrder: string | null;
     drugName: string;
     activeIngredient: string;
     concentration: string;
+    unit: string | null;
     dosageForm: string;
     route: string;
+    technicalGroup: string | null;
+    registrationNumber: string | null;
+    manufacturer: string | null;
+    countryOfOrigin: string | null;
+    packaging: string | null;
     unitPrice: number | string;
     quantity: number | string;
     lineTotal: number | string;
@@ -80,11 +87,18 @@ interface ContractGoodsCategory {
 }
 
 interface MedicineFormItem {
+    bidNoticeOrder: string;
     drugName: string;
     activeIngredient: string;
     concentration: string;
+    unit: string;
     dosageForm: string;
     route: string;
+    technicalGroup: string;
+    registrationNumber: string;
+    manufacturer: string;
+    countryOfOrigin: string;
+    packaging: string;
     unitPrice: string;
     quantity: string;
 }
@@ -212,11 +226,18 @@ export default function ContractPage() {
 
     function createEmptyMedicineItem(): MedicineFormItem {
         return {
+            bidNoticeOrder: "",
             drugName: "",
             activeIngredient: "",
             concentration: "",
+            unit: "",
             dosageForm: "",
             route: "",
+            technicalGroup: "",
+            registrationNumber: "",
+            manufacturer: "",
+            countryOfOrigin: "",
+            packaging: "",
             unitPrice: "",
             quantity: "",
         };
@@ -247,11 +268,18 @@ export default function ContractPage() {
 
         setCategoryType(category.type);
         setMedicineItems(category.medicines.map((item) => ({
+            bidNoticeOrder: item.bidNoticeOrder || "",
             drugName: item.drugName,
             activeIngredient: item.activeIngredient,
             concentration: item.concentration,
+            unit: item.unit || "",
             dosageForm: item.dosageForm,
             route: item.route,
+            technicalGroup: item.technicalGroup || "",
+            registrationNumber: item.registrationNumber || "",
+            manufacturer: item.manufacturer || "",
+            countryOfOrigin: item.countryOfOrigin || "",
+            packaging: item.packaging || "",
             unitPrice: toInputValue(item.unitPrice),
             quantity: toInputValue(item.quantity),
         })));
@@ -509,16 +537,23 @@ export default function ContractPage() {
                         Chưa có dòng thuốc
                     </div>
                 ) : (
-                    <div className="rounded-md border border-slate-200">
-                        <Table className="min-w-[1180px]">
+                    <div className="overflow-x-auto rounded-md border border-slate-200">
+                        <Table className="min-w-[2200px]">
                             <TableHeader>
                                 <TableRow className="border-slate-200 hover:bg-transparent">
                                     <TableHead className="text-slate-500 w-14">STT</TableHead>
+                                    <TableHead className="text-slate-500 min-w-36">STT Thông báo chào giá</TableHead>
                                     <TableHead className="text-slate-500 min-w-40">Tên thuốc</TableHead>
                                     <TableHead className="text-slate-500 min-w-40">Tên hoạt chất</TableHead>
                                     <TableHead className="text-slate-500 min-w-40">Nồng độ/Hàm lượng</TableHead>
+                                    <TableHead className="text-slate-500 min-w-28">Đơn vị tính</TableHead>
                                     <TableHead className="text-slate-500 min-w-36">Dạng bào chế</TableHead>
                                     <TableHead className="text-slate-500 min-w-32">Đường dùng</TableHead>
+                                    <TableHead className="text-slate-500 min-w-32">Nhóm TCKT</TableHead>
+                                    <TableHead className="text-slate-500 min-w-32">SĐK/ GPNK</TableHead>
+                                    <TableHead className="text-slate-500 min-w-40">Hãng sản xuất</TableHead>
+                                    <TableHead className="text-slate-500 min-w-40">Nước sản xuất</TableHead>
+                                    <TableHead className="text-slate-500 min-w-44">Quy cách đóng gói</TableHead>
                                     <TableHead className="text-slate-500 min-w-32">Đơn giá</TableHead>
                                     <TableHead className="text-slate-500 min-w-28">Số lượng</TableHead>
                                     <TableHead className="text-slate-500 min-w-36">Thành tiền</TableHead>
@@ -530,6 +565,9 @@ export default function ContractPage() {
                                     <TableRow key={index} className="border-slate-100 hover:bg-slate-50">
                                         <TableCell className="text-slate-500">{index + 1}</TableCell>
                                         <TableCell>
+                                            <Input value={item.bidNoticeOrder} onChange={(e) => updateMedicineItem(index, "bidNoticeOrder", e.target.value)} disabled={!canEdit} className="bg-white border-slate-200 text-slate-800" />
+                                        </TableCell>
+                                        <TableCell>
                                             <Input value={item.drugName} onChange={(e) => updateMedicineItem(index, "drugName", e.target.value)} disabled={!canEdit} required className="bg-white border-slate-200 text-slate-800" />
                                         </TableCell>
                                         <TableCell>
@@ -539,10 +577,28 @@ export default function ContractPage() {
                                             <Input value={item.concentration} onChange={(e) => updateMedicineItem(index, "concentration", e.target.value)} disabled={!canEdit} required className="bg-white border-slate-200 text-slate-800" />
                                         </TableCell>
                                         <TableCell>
+                                            <Input value={item.unit} onChange={(e) => updateMedicineItem(index, "unit", e.target.value)} disabled={!canEdit} className="bg-white border-slate-200 text-slate-800" />
+                                        </TableCell>
+                                        <TableCell>
                                             <Input value={item.dosageForm} onChange={(e) => updateMedicineItem(index, "dosageForm", e.target.value)} disabled={!canEdit} required className="bg-white border-slate-200 text-slate-800" />
                                         </TableCell>
                                         <TableCell>
                                             <Input value={item.route} onChange={(e) => updateMedicineItem(index, "route", e.target.value)} disabled={!canEdit} required className="bg-white border-slate-200 text-slate-800" />
+                                        </TableCell>
+                                        <TableCell>
+                                            <Input value={item.technicalGroup} onChange={(e) => updateMedicineItem(index, "technicalGroup", e.target.value)} disabled={!canEdit} className="bg-white border-slate-200 text-slate-800" />
+                                        </TableCell>
+                                        <TableCell>
+                                            <Input value={item.registrationNumber} onChange={(e) => updateMedicineItem(index, "registrationNumber", e.target.value)} disabled={!canEdit} className="bg-white border-slate-200 text-slate-800" />
+                                        </TableCell>
+                                        <TableCell>
+                                            <Input value={item.manufacturer} onChange={(e) => updateMedicineItem(index, "manufacturer", e.target.value)} disabled={!canEdit} className="bg-white border-slate-200 text-slate-800" />
+                                        </TableCell>
+                                        <TableCell>
+                                            <Input value={item.countryOfOrigin} onChange={(e) => updateMedicineItem(index, "countryOfOrigin", e.target.value)} disabled={!canEdit} className="bg-white border-slate-200 text-slate-800" />
+                                        </TableCell>
+                                        <TableCell>
+                                            <Input value={item.packaging} onChange={(e) => updateMedicineItem(index, "packaging", e.target.value)} disabled={!canEdit} className="bg-white border-slate-200 text-slate-800" />
                                         </TableCell>
                                         <TableCell>
                                             <Input type="number" min="0" step="0.01" value={item.unitPrice} onChange={(e) => updateMedicineItem(index, "unitPrice", e.target.value)} disabled={!canEdit} required className="bg-white border-slate-200 text-slate-800" />
