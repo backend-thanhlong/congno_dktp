@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useSession } from "next-auth/react";
 import {
     Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/select";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Pencil, Trash2, FileText, Search, ChevronLeft, ChevronRight } from "lucide-react";
+import { Plus, Pencil, Trash2, FileText, Search, ChevronLeft, ChevronRight, Download, Upload } from "lucide-react";
 
 interface Company {
     id: string;
@@ -110,12 +110,58 @@ interface SupplyFormItem {
     unitPrice: string;
 }
 
+type ExcelImportRows = MedicineFormItem[] | SupplyFormItem[];
+
+interface ExcelImportPreview {
+    type: GoodsCategoryType;
+    fileName: string;
+    totalRows: number;
+    validRows: number;
+    errorRows: number;
+    rows: ExcelImportRows;
+    errors: string[];
+}
+
+interface ExcelColumn {
+    header: string;
+    field?: string;
+    required?: boolean;
+    numeric?: boolean;
+    sample: string | number;
+}
+
 const CONTRACT_PAGE_SIZE = 50;
 
 const categoryTypeLabels = {
     MEDICINE: "Thuốc",
     SUPPLY: "Vật tư",
 };
+
+const medicineExcelColumns: ExcelColumn[] = [
+    { header: "STT", sample: 1 },
+    { header: "STT Thông báo chào giá", field: "bidNoticeOrder", sample: "1" },
+    { header: "Tên thuốc", field: "drugName", required: true, sample: "Paracetamol" },
+    { header: "Tên hoạt chất", field: "activeIngredient", required: true, sample: "Paracetamol" },
+    { header: "Nồng độ/Hàm lượng", field: "concentration", required: true, sample: "500mg" },
+    { header: "Đơn vị tính", field: "unit", sample: "Viên" },
+    { header: "Dạng bào chế", field: "dosageForm", required: true, sample: "Viên nén" },
+    { header: "Đường dùng", field: "route", required: true, sample: "Uống" },
+    { header: "Nhóm TCKT", field: "technicalGroup", sample: "Nhóm 1" },
+    { header: "SĐK/ GPNK", field: "registrationNumber", sample: "VD-00000-00" },
+    { header: "Hãng sản xuất", field: "manufacturer", sample: "Công ty dược" },
+    { header: "Nước sản xuất", field: "countryOfOrigin", sample: "Việt Nam" },
+    { header: "Quy cách đóng gói", field: "packaging", sample: "Hộp 10 vỉ x 10 viên" },
+    { header: "Đơn giá", field: "unitPrice", required: true, numeric: true, sample: 1000 },
+    { header: "Số lượng", field: "quantity", required: true, numeric: true, sample: 100 },
+];
+
+const supplyExcelColumns: ExcelColumn[] = [
+    { header: "STT", sample: 1 },
+    { header: "Tên hàng hóa", field: "goodsName", required: true, sample: "Bơm tiêm" },
+    { header: "Yêu cầu kỹ thuật", field: "technicalRequirement", sample: "Dung tích 5ml, vô trùng" },
+    { header: "Số lượng", field: "quantity", required: true, numeric: true, sample: 100 },
+    { header: "Đơn giá", field: "unitPrice", required: true, numeric: true, sample: 5000 },
+];
 
 const statusLabels = {
     ACTIVE: { label: "Còn hiệu lực", color: "bg-transparent text-green-700 border-green-600 font-semibold" },
@@ -166,6 +212,9 @@ export default function ContractPage() {
     const [categoryLoading, setCategoryLoading] = useState(false);
     const [categorySaving, setCategorySaving] = useState(false);
     const [categoryError, setCategoryError] = useState("");
+    const [isImportPreviewOpen, setIsImportPreviewOpen] = useState(false);
+    const [importPreview, setImportPreview] = useState<ExcelImportPreview | null>(null);
+    const excelFileInputRef = useRef<HTMLInputElement | null>(null);
 
     const fetchContracts = useCallback(async (targetPage: number, targetSearch: string) => {
         setLoading(true);
@@ -300,6 +349,8 @@ export default function ContractPage() {
         setCategoryError("");
         setCategoryLoading(false);
         setCategorySaving(false);
+        setImportPreview(null);
+        setIsImportPreviewOpen(false);
     }
 
     function handleCategoryDialogOpenChange(open: boolean) {
@@ -335,6 +386,8 @@ export default function ContractPage() {
     function handleCategoryTypeChange(value: GoodsCategoryType) {
         setCategoryType(value);
         setCategoryError("");
+        setImportPreview(null);
+        setIsImportPreviewOpen(false);
 
         if (value === "MEDICINE" && medicineItems.length === 0) {
             setMedicineItems([createEmptyMedicineItem()]);
@@ -523,6 +576,337 @@ export default function ContractPage() {
         return new Date(date).toLocaleDateString("vi-VN");
     }
 
+    function getExcelColumns(type: GoodsCategoryType) {
+        return type === "MEDICINE" ? medicineExcelColumns : supplyExcelColumns;
+    }
+
+    function normalizeExcelHeader(value: string) {
+        return value
+            .normalize("NFD")
+            .replace(/đ/g, "d")
+            .replace(/Đ/g, "D")
+            .replace(/[\u0300-\u036f]/g, "")
+            .replace(/[^a-zA-Z0-9]+/g, "")
+            .toLowerCase();
+    }
+
+    function createExcelHeaderLookup(row: Record<string, unknown>) {
+        return new Map(
+            Object.entries(row).map(([key, value]) => [normalizeExcelHeader(key), value])
+        );
+    }
+
+    function readExcelText(row: Map<string, unknown>, header: string) {
+        const value = row.get(normalizeExcelHeader(header));
+        return value === null || value === undefined ? "" : String(value).trim();
+    }
+
+    function isExcelDataRowEmpty(row: Map<string, unknown>, columns: ExcelColumn[]) {
+        return columns
+            .filter((column) => column.field)
+            .every((column) => readExcelText(row, column.header) === "");
+    }
+
+    function findMissingRequiredHeaders(rows: Record<string, unknown>[], columns: ExcelColumn[]) {
+        const availableHeaders = new Set(
+            rows.flatMap((row) => Object.keys(row).map((key) => normalizeExcelHeader(key)))
+        );
+
+        return columns
+            .filter((column) => column.required)
+            .filter((column) => !availableHeaders.has(normalizeExcelHeader(column.header)))
+            .map((column) => column.header);
+    }
+
+    function parseExcelNumber(value: string) {
+        const text = value.trim().replace(/\s/g, "");
+        if (!text) return null;
+
+        let normalized = text;
+        if (text.includes(",") && text.includes(".")) {
+            normalized = text.lastIndexOf(",") > text.lastIndexOf(".")
+                ? text.replace(/\./g, "").replace(",", ".")
+                : text.replace(/,/g, "");
+        } else if (text.includes(",")) {
+            const parts = text.split(",");
+            normalized = parts.length === 2 && parts[1].length === 3
+                ? parts.join("")
+                : text.replace(",", ".");
+        }
+
+        const parsed = Number(normalized);
+        return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+    }
+
+    function readRequiredExcelText(
+        row: Map<string, unknown>,
+        header: string,
+        rowNumber: number,
+        errors: string[],
+        missingHeaders: Set<string>
+    ) {
+        if (missingHeaders.has(header)) return "";
+
+        const value = readExcelText(row, header);
+        if (!value) {
+            errors.push(`Dòng ${rowNumber}: ${header} là bắt buộc.`);
+        }
+
+        return value;
+    }
+
+    function readRequiredExcelNumber(
+        row: Map<string, unknown>,
+        header: string,
+        rowNumber: number,
+        errors: string[],
+        missingHeaders: Set<string>
+    ) {
+        if (missingHeaders.has(header)) return "";
+
+        const value = readExcelText(row, header);
+        if (!value) {
+            errors.push(`Dòng ${rowNumber}: ${header} là bắt buộc.`);
+            return "";
+        }
+
+        const parsed = parseExcelNumber(value);
+        if (parsed === null) {
+            errors.push(`Dòng ${rowNumber}: ${header} phải là số không âm.`);
+            return "";
+        }
+
+        return parsed.toString();
+    }
+
+    function getExcelRowNumber(row: Record<string, unknown>, fallbackIndex: number) {
+        const rowNumber = (row as { __rowNum__?: number }).__rowNum__;
+        return typeof rowNumber === "number" ? rowNumber + 1 : fallbackIndex + 2;
+    }
+
+    function parseMedicineExcelRows(rawRows: Record<string, unknown>[]) {
+        const rows: MedicineFormItem[] = [];
+        const errors: string[] = [];
+        let validRows = 0;
+        let errorRows = 0;
+        const missingHeaders = new Set(findMissingRequiredHeaders(rawRows, medicineExcelColumns));
+
+        missingHeaders.forEach((header) => {
+            errors.push(`Thiếu cột bắt buộc: ${header}.`);
+        });
+
+        rawRows.forEach((rawRow, index) => {
+            const row = createExcelHeaderLookup(rawRow);
+            if (isExcelDataRowEmpty(row, medicineExcelColumns)) return;
+
+            const rowNumber = getExcelRowNumber(rawRow, index);
+            const rowErrors: string[] = [];
+            rows.push({
+                bidNoticeOrder: readExcelText(row, "STT Thông báo chào giá"),
+                drugName: readRequiredExcelText(row, "Tên thuốc", rowNumber, rowErrors, missingHeaders),
+                activeIngredient: readRequiredExcelText(row, "Tên hoạt chất", rowNumber, rowErrors, missingHeaders),
+                concentration: readRequiredExcelText(row, "Nồng độ/Hàm lượng", rowNumber, rowErrors, missingHeaders),
+                unit: readExcelText(row, "Đơn vị tính"),
+                dosageForm: readRequiredExcelText(row, "Dạng bào chế", rowNumber, rowErrors, missingHeaders),
+                route: readRequiredExcelText(row, "Đường dùng", rowNumber, rowErrors, missingHeaders),
+                technicalGroup: readExcelText(row, "Nhóm TCKT"),
+                registrationNumber: readExcelText(row, "SĐK/ GPNK"),
+                manufacturer: readExcelText(row, "Hãng sản xuất"),
+                countryOfOrigin: readExcelText(row, "Nước sản xuất"),
+                packaging: readExcelText(row, "Quy cách đóng gói"),
+                unitPrice: readRequiredExcelNumber(row, "Đơn giá", rowNumber, rowErrors, missingHeaders),
+                quantity: readRequiredExcelNumber(row, "Số lượng", rowNumber, rowErrors, missingHeaders),
+            });
+
+            if (rowErrors.length > 0 || missingHeaders.size > 0) {
+                errorRows += 1;
+            } else {
+                validRows += 1;
+            }
+
+            errors.push(...rowErrors);
+        });
+
+        if (rows.length === 0) {
+            errors.push("File Excel không có dòng dữ liệu.");
+        }
+
+        return { rows, errors, validRows, errorRows };
+    }
+
+    function parseSupplyExcelRows(rawRows: Record<string, unknown>[]) {
+        const rows: SupplyFormItem[] = [];
+        const errors: string[] = [];
+        let validRows = 0;
+        let errorRows = 0;
+        const missingHeaders = new Set(findMissingRequiredHeaders(rawRows, supplyExcelColumns));
+
+        missingHeaders.forEach((header) => {
+            errors.push(`Thiếu cột bắt buộc: ${header}.`);
+        });
+
+        rawRows.forEach((rawRow, index) => {
+            const row = createExcelHeaderLookup(rawRow);
+            if (isExcelDataRowEmpty(row, supplyExcelColumns)) return;
+
+            const rowNumber = getExcelRowNumber(rawRow, index);
+            const rowErrors: string[] = [];
+            rows.push({
+                goodsName: readRequiredExcelText(row, "Tên hàng hóa", rowNumber, rowErrors, missingHeaders),
+                technicalRequirement: readExcelText(row, "Yêu cầu kỹ thuật"),
+                quantity: readRequiredExcelNumber(row, "Số lượng", rowNumber, rowErrors, missingHeaders),
+                unitPrice: readRequiredExcelNumber(row, "Đơn giá", rowNumber, rowErrors, missingHeaders),
+            });
+
+            if (rowErrors.length > 0 || missingHeaders.size > 0) {
+                errorRows += 1;
+            } else {
+                validRows += 1;
+            }
+
+            errors.push(...rowErrors);
+        });
+
+        if (rows.length === 0) {
+            errors.push("File Excel không có dòng dữ liệu.");
+        }
+
+        return { rows, errors, validRows, errorRows };
+    }
+
+    async function buildExcelImportPreview(file: File, type: GoodsCategoryType): Promise<ExcelImportPreview> {
+        const XLSX = await import("xlsx");
+        const workbook = XLSX.read(await file.arrayBuffer(), { type: "array" });
+        const sheetName = workbook.SheetNames[0];
+
+        if (!sheetName) {
+            throw new Error("File Excel không có sheet dữ liệu.");
+        }
+
+        const worksheet = workbook.Sheets[sheetName];
+        const rawRows = XLSX.utils.sheet_to_json(worksheet, {
+            defval: "",
+            raw: false,
+        }) as Record<string, unknown>[];
+        const parsed = type === "MEDICINE"
+            ? parseMedicineExcelRows(rawRows)
+            : parseSupplyExcelRows(rawRows);
+
+        return {
+            type,
+            fileName: file.name,
+            totalRows: parsed.rows.length,
+            validRows: parsed.validRows,
+            errorRows: parsed.errorRows,
+            rows: parsed.rows,
+            errors: parsed.errors,
+        };
+    }
+
+    async function handleDownloadExcelTemplate() {
+        if (!categoryType) {
+            setCategoryError("Vui lòng chọn loại danh mục trước khi tải mẫu Excel.");
+            return;
+        }
+
+        const XLSX = await import("xlsx");
+        const columns = getExcelColumns(categoryType);
+        const sampleRow = Object.fromEntries(columns.map((column) => [column.header, column.sample]));
+        const worksheet = XLSX.utils.json_to_sheet([sampleRow], {
+            header: columns.map((column) => column.header),
+        });
+        worksheet["!cols"] = columns.map((column) => ({
+            wch: Math.max(12, column.header.length + 2),
+        }));
+
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, categoryTypeLabels[categoryType]);
+        XLSX.writeFile(
+            workbook,
+            categoryType === "MEDICINE" ? "mau-danh-muc-thuoc.xlsx" : "mau-danh-muc-vat-tu.xlsx"
+        );
+    }
+
+    function handleTriggerExcelImport() {
+        if (!categoryType) {
+            setCategoryError("Vui lòng chọn loại danh mục trước khi import Excel.");
+            return;
+        }
+
+        excelFileInputRef.current?.click();
+    }
+
+    async function handleExcelFileChange(event: React.ChangeEvent<HTMLInputElement>) {
+        const file = event.target.files?.[0];
+        event.target.value = "";
+
+        if (!file || !categoryType) return;
+
+        if (!/\.(xlsx|xls)$/i.test(file.name)) {
+            setCategoryError("Chỉ chấp nhận file Excel .xlsx hoặc .xls.");
+            return;
+        }
+
+        try {
+            const preview = await buildExcelImportPreview(file, categoryType);
+            setImportPreview(preview);
+            setIsImportPreviewOpen(true);
+            setCategoryError("");
+        } catch (error) {
+            console.error("Error importing Excel:", error);
+            setCategoryError(error instanceof Error ? error.message : "Không đọc được file Excel.");
+        }
+    }
+
+    function handleConfirmExcelImport() {
+        if (!importPreview || importPreview.errors.length > 0 || importPreview.rows.length === 0) return;
+
+        if (importPreview.type !== categoryType) {
+            setCategoryError("Loại danh mục đã thay đổi. Vui lòng import lại file Excel.");
+            setIsImportPreviewOpen(false);
+            setImportPreview(null);
+            return;
+        }
+
+        if (importPreview.type === "MEDICINE") {
+            setMedicineItems(importPreview.rows as MedicineFormItem[]);
+        } else {
+            setSupplyItems(importPreview.rows as SupplyFormItem[]);
+        }
+
+        setIsImportPreviewOpen(false);
+        setImportPreview(null);
+        setCategoryError("");
+    }
+
+    function renderExcelActions() {
+        if (!categoryType) return null;
+
+        return (
+            <div className="flex flex-col sm:flex-row sm:items-center gap-2 rounded-md border border-slate-200 bg-slate-50 p-3">
+                <Button type="button" variant="outline" size="sm" onClick={handleDownloadExcelTemplate} className="border-slate-200 text-slate-700 hover:bg-white">
+                    <Download className="w-4 h-4 mr-2" />
+                    Tải Excel mẫu
+                </Button>
+                {canEdit && (
+                    <>
+                    <Button type="button" variant="outline" size="sm" onClick={handleTriggerExcelImport} className="border-slate-200 text-slate-700 hover:bg-white">
+                        <Upload className="w-4 h-4 mr-2" />
+                        Import Excel
+                    </Button>
+                    <input
+                        ref={excelFileInputRef}
+                        type="file"
+                        accept=".xlsx,.xls"
+                        className="hidden"
+                        onChange={handleExcelFileChange}
+                    />
+                    </>
+                )}
+            </div>
+        );
+    }
+
     function renderMedicineTable() {
         return (
             <div className="space-y-3">
@@ -684,6 +1068,57 @@ export default function ContractPage() {
                             </TableBody>
                         </Table>
                     </div>
+                )}
+            </div>
+        );
+    }
+
+    function renderImportPreviewTable() {
+        if (!importPreview) return null;
+
+        const columns = getExcelColumns(importPreview.type);
+        const previewRows = importPreview.rows.slice(0, 20);
+
+        return (
+            <div className="space-y-2">
+                <div className="overflow-x-auto rounded-md border border-slate-200">
+                    <Table className={importPreview.type === "MEDICINE" ? "min-w-[1900px]" : "min-w-[760px]"}>
+                        <TableHeader>
+                            <TableRow className="border-slate-200 hover:bg-transparent">
+                                {columns.map((column) => (
+                                    <TableHead key={column.header} className="text-slate-500 min-w-32">
+                                        {column.header}
+                                    </TableHead>
+                                ))}
+                            </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                            {previewRows.length === 0 ? (
+                                <TableRow>
+                                    <TableCell colSpan={columns.length} className="text-center py-8 text-slate-500">
+                                        Không có dòng hợp lệ để xem trước
+                                    </TableCell>
+                                </TableRow>
+                            ) : (
+                                previewRows.map((row, index) => (
+                                    <TableRow key={index} className="border-slate-100 hover:bg-slate-50">
+                                        {columns.map((column) => (
+                                            <TableCell key={column.header} className="text-slate-700">
+                                                {column.field
+                                                    ? ((row as unknown as Record<string, string>)[column.field] || "")
+                                                    : index + 1}
+                                            </TableCell>
+                                        ))}
+                                    </TableRow>
+                                ))
+                            )}
+                        </TableBody>
+                    </Table>
+                </div>
+                {importPreview.rows.length > previewRows.length && (
+                    <p className="text-xs text-slate-500">
+                        Chỉ hiển thị 20 dòng đầu trong phần xem trước.
+                    </p>
                 )}
             </div>
         );
@@ -892,6 +1327,8 @@ export default function ContractPage() {
                                 </div>
                             )}
 
+                            {renderExcelActions()}
+
                             {!categoryType && (
                                 <div className="rounded-md border border-slate-200 py-8 text-center text-sm text-slate-500">
                                     Chưa có danh mục hàng hóa
@@ -917,6 +1354,70 @@ export default function ContractPage() {
                                 {categorySaving ? "Đang lưu..." : "Lưu danh mục"}
                             </Button>
                         )}
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            <Dialog
+                open={isImportPreviewOpen}
+                onOpenChange={(open) => {
+                    setIsImportPreviewOpen(open);
+                    if (!open) {
+                        setImportPreview(null);
+                    }
+                }}
+            >
+                <DialogContent className="bg-white border-slate-200 text-slate-800 shadow-xl sm:max-w-5xl max-h-[90vh] overflow-y-auto">
+                    <DialogHeader>
+                        <DialogTitle className="text-slate-800">Xem trước import Excel</DialogTitle>
+                        <DialogDescription className="text-slate-500">
+                            {importPreview
+                                ? `${importPreview.fileName} - ${categoryTypeLabels[importPreview.type]}`
+                                : "Kiểm tra dữ liệu trước khi thay thế danh mục hiện tại"}
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    {importPreview && (
+                        <div className="space-y-4">
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
+                                    <div className="text-xs text-slate-500">Dòng dữ liệu</div>
+                                    <div className="text-xl font-semibold text-slate-800">{importPreview.totalRows}</div>
+                                </div>
+                                <div className="rounded-md border border-green-200 bg-green-50 p-3">
+                                    <div className="text-xs text-green-700">Dòng hợp lệ</div>
+                                    <div className="text-xl font-semibold text-green-700">{importPreview.validRows}</div>
+                                </div>
+                                <div className="rounded-md border border-red-200 bg-red-50 p-3">
+                                    <div className="text-xs text-red-700">Dòng lỗi</div>
+                                    <div className="text-xl font-semibold text-red-700">{importPreview.errorRows}</div>
+                                </div>
+                            </div>
+
+                            {importPreview.errors.length > 0 && (
+                                <div className="max-h-48 overflow-y-auto rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                                    {importPreview.errors.map((error, index) => (
+                                        <div key={index}>{error}</div>
+                                    ))}
+                                </div>
+                            )}
+
+                            {renderImportPreviewTable()}
+                        </div>
+                    )}
+
+                    <DialogFooter>
+                        <Button type="button" variant="outline" onClick={() => setIsImportPreviewOpen(false)} className="border-slate-200 text-slate-600 hover:bg-slate-50">
+                            Hủy
+                        </Button>
+                        <Button
+                            type="button"
+                            onClick={handleConfirmExcelImport}
+                            disabled={!importPreview || importPreview.errors.length > 0 || importPreview.rows.length === 0}
+                            className="bg-gradient-to-r from-blue-600 to-purple-600 text-white"
+                        >
+                            Xác nhận import
+                        </Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
