@@ -36,6 +36,12 @@ interface Contract {
     status: "ACTIVE" | "EXPIRED" | "TERMINATED";
     priority: "HIGH" | "NORMAL" | "LOW";
     appendices: { value: number }[];
+    goodsCategory: {
+        _count: {
+            medicines: number;
+            supplies: number;
+        };
+    } | null;
 }
 
 interface ContractsResponse {
@@ -669,6 +675,7 @@ export default function ContractPage() {
 
             const data: ContractGoodsCategory = await response.json();
             hydrateGoodsCategory(data);
+            fetchContracts(page, searchTerm, appliedFilters);
         } catch (error) {
             console.error("Error saving goods category:", error);
             setCategoryError(error instanceof Error ? error.message : "Không lưu được danh mục hàng hóa.");
@@ -694,6 +701,7 @@ export default function ContractPage() {
             }
 
             hydrateGoodsCategory(null);
+            fetchContracts(page, searchTerm, appliedFilters);
         } catch (error) {
             console.error("Error deleting goods category:", error);
             setCategoryError(error instanceof Error ? error.message : "Không xóa được danh mục hàng hóa.");
@@ -1905,6 +1913,7 @@ export default function ContractPage() {
                                         <TableHead className="text-slate-500 w-16">STT</TableHead>
                                         <TableHead className="text-slate-500">Số hợp đồng</TableHead>
                                         <TableHead className="text-slate-500">Công ty</TableHead>
+                                        <TableHead className="text-slate-500 text-center">Số lượng mặt hàng</TableHead>
                                         <TableHead className="text-slate-500">Ngày ký</TableHead>
                                         <TableHead className="text-slate-500">Ngày hết hạn</TableHead>
                                         <TableHead className="text-slate-500">Giá trị</TableHead>
@@ -1918,7 +1927,7 @@ export default function ContractPage() {
                                 <TableBody>
                                     {contracts.length === 0 ? (
                                         <TableRow>
-                                            <TableCell colSpan={11} className="text-center py-8 text-slate-500">
+                                            <TableCell colSpan={12} className="text-center py-8 text-slate-500">
                                                 Không có dữ liệu
                                             </TableCell>
                                         </TableRow>
@@ -1926,11 +1935,13 @@ export default function ContractPage() {
                                         contracts.map((contract, index) => {
                                             const totalAppendixValue = contract.appendices?.reduce((sum, app) => sum + Number(app.value), 0) || 0;
                                             const totalValue = Number(contract.value) + totalAppendixValue;
+                                            const itemCount = (contract.goodsCategory?._count.medicines || 0) + (contract.goodsCategory?._count.supplies || 0);
                                             return (
                                                 <TableRow key={contract.id} className="border-slate-100 hover:bg-slate-50">
                                                     <TableCell className="text-slate-500">{(pagination.page - 1) * pagination.pageSize + index + 1}</TableCell>
                                                     <TableCell className="text-slate-800 font-medium">{contract.contractNumber}</TableCell>
                                                     <TableCell className="text-slate-600">{contract.company.name}</TableCell>
+                                                    <TableCell className="text-center font-semibold text-slate-700">{itemCount}</TableCell>
                                                     <TableCell className="text-slate-600">{formatDate(contract.signDate)}</TableCell>
                                                     <TableCell className="text-slate-600">{formatDate(contract.expiryDate)}</TableCell>
                                                     <TableCell className="text-slate-600">{formatCurrency(Number(contract.value))}</TableCell>

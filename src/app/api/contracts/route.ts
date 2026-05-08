@@ -33,6 +33,13 @@ const contractInclude = {
     appendices: {
         select: { value: true },
     },
+    goodsCategory: {
+        select: {
+            _count: {
+                select: { medicines: true, supplies: true },
+            },
+        },
+    },
     _count: {
         select: { appendices: true, acceptances: true, payments: true, invoices: true },
     },
