@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useSession } from "next-auth/react";
 import {
     Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -16,7 +16,9 @@ import {
 } from "@/components/ui/select";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Pencil, Trash2, FileText, Search, ChevronLeft, ChevronRight, Download, Upload } from "lucide-react";
+import {
+    Plus, Pencil, Trash2, FileText, Search, ChevronLeft, ChevronRight, Download, Upload, SlidersHorizontal, X,
+} from "lucide-react";
 
 interface Company {
     id: string;
@@ -47,6 +49,31 @@ interface ContractsResponse {
 }
 
 type GoodsCategoryType = "MEDICINE" | "SUPPLY";
+type PresenceFilter = "HAS" | "NONE";
+type ExpiringInDaysFilter = "" | "30" | "60" | "90";
+type PresenceFilterField =
+    | "goodsCategoryPresence"
+    | "appendixPresence"
+    | "acceptancePresence"
+    | "paymentPresence"
+    | "invoicePresence";
+
+interface ContractFilters {
+    companyIds: string[];
+    statuses: Contract["status"][];
+    priorities: Contract["priority"][];
+    signDateFrom: string;
+    signDateTo: string;
+    expiryDateFrom: string;
+    expiryDateTo: string;
+    expiringInDays: ExpiringInDaysFilter;
+    goodsCategoryPresence: PresenceFilter[];
+    goodsCategoryTypes: GoodsCategoryType[];
+    appendixPresence: PresenceFilter[];
+    acceptancePresence: PresenceFilter[];
+    paymentPresence: PresenceFilter[];
+    invoicePresence: PresenceFilter[];
+}
 
 interface MedicineItemResponse {
     id: string;
@@ -132,6 +159,126 @@ interface ExcelColumn {
 
 const CONTRACT_PAGE_SIZE = 50;
 
+const emptyContractFilters: ContractFilters = {
+    companyIds: [],
+    statuses: [],
+    priorities: [],
+    signDateFrom: "",
+    signDateTo: "",
+    expiryDateFrom: "",
+    expiryDateTo: "",
+    expiringInDays: "",
+    goodsCategoryPresence: [],
+    goodsCategoryTypes: [],
+    appendixPresence: [],
+    acceptancePresence: [],
+    paymentPresence: [],
+    invoicePresence: [],
+};
+
+const statusFilterOptions: { value: Contract["status"]; label: string }[] = [
+    { value: "ACTIVE", label: "Còn hiệu lực" },
+    { value: "EXPIRED", label: "Hết hạn" },
+    { value: "TERMINATED", label: "Đã hủy" },
+];
+
+const priorityFilterOptions: { value: Contract["priority"]; label: string }[] = [
+    { value: "HIGH", label: "Cao" },
+    { value: "NORMAL", label: "Bình thường" },
+    { value: "LOW", label: "Thấp" },
+];
+
+const goodsCategoryFilterOptions: { value: GoodsCategoryType; label: string }[] = [
+    { value: "MEDICINE", label: "Thuốc" },
+    { value: "SUPPLY", label: "Vật tư" },
+];
+
+const presenceFilterOptions: { value: PresenceFilter; label: string }[] = [
+    { value: "HAS", label: "Có" },
+    { value: "NONE", label: "Chưa có" },
+];
+
+const expiringInDaysOptions: { value: Exclude<ExpiringInDaysFilter, "">; label: string }[] = [
+    { value: "30", label: "30 ngày" },
+    { value: "60", label: "60 ngày" },
+    { value: "90", label: "90 ngày" },
+];
+
+function cloneContractFilters(filters: ContractFilters): ContractFilters {
+    return {
+        ...filters,
+        companyIds: [...filters.companyIds],
+        statuses: [...filters.statuses],
+        priorities: [...filters.priorities],
+        goodsCategoryPresence: [...filters.goodsCategoryPresence],
+        goodsCategoryTypes: [...filters.goodsCategoryTypes],
+        appendixPresence: [...filters.appendixPresence],
+        acceptancePresence: [...filters.acceptancePresence],
+        paymentPresence: [...filters.paymentPresence],
+        invoicePresence: [...filters.invoicePresence],
+    };
+}
+
+function toggleFilterValue<T extends string>(values: T[], value: T) {
+    return values.includes(value)
+        ? values.filter((item) => item !== value)
+        : [...values, value];
+}
+
+function appendCsvParam(params: URLSearchParams, key: string, values: string[]) {
+    if (values.length > 0) {
+        params.set(key, values.join(","));
+    }
+}
+
+function isNoGoodsCategoryOnly(filters: ContractFilters) {
+    return filters.goodsCategoryPresence.length === 1 && filters.goodsCategoryPresence[0] === "NONE";
+}
+
+function appendContractFilters(params: URLSearchParams, filters: ContractFilters) {
+    appendCsvParam(params, "companyIds", filters.companyIds);
+    appendCsvParam(params, "statuses", filters.statuses);
+    appendCsvParam(params, "priorities", filters.priorities);
+    appendCsvParam(params, "goodsCategoryPresence", filters.goodsCategoryPresence);
+    appendCsvParam(params, "appendixPresence", filters.appendixPresence);
+    appendCsvParam(params, "acceptancePresence", filters.acceptancePresence);
+    appendCsvParam(params, "paymentPresence", filters.paymentPresence);
+    appendCsvParam(params, "invoicePresence", filters.invoicePresence);
+
+    if (!isNoGoodsCategoryOnly(filters)) {
+        appendCsvParam(params, "goodsCategoryTypes", filters.goodsCategoryTypes);
+    }
+
+    if (filters.signDateFrom) params.set("signDateFrom", filters.signDateFrom);
+    if (filters.signDateTo) params.set("signDateTo", filters.signDateTo);
+    if (filters.expiryDateFrom) params.set("expiryDateFrom", filters.expiryDateFrom);
+    if (filters.expiryDateTo) params.set("expiryDateTo", filters.expiryDateTo);
+    if (filters.expiringInDays) params.set("expiringInDays", filters.expiringInDays);
+}
+
+function hasEffectivePresenceFilter(values: PresenceFilter[]) {
+    return values.length === 1;
+}
+
+function countActiveFilterGroups(filters: ContractFilters) {
+    let count = 0;
+
+    if (filters.companyIds.length > 0) count += 1;
+    if (filters.statuses.length > 0 && filters.statuses.length < statusFilterOptions.length) count += 1;
+    if (filters.priorities.length > 0 && filters.priorities.length < priorityFilterOptions.length) count += 1;
+    if (filters.signDateFrom || filters.signDateTo) count += 1;
+    if (filters.expiryDateFrom || filters.expiryDateTo) count += 1;
+    if (filters.expiringInDays) count += 1;
+    if (hasEffectivePresenceFilter(filters.goodsCategoryPresence)) count += 1;
+    if (filters.goodsCategoryTypes.length > 0 && !isNoGoodsCategoryOnly(filters)) count += 1;
+    if (hasEffectivePresenceFilter(filters.appendixPresence)) count += 1;
+    if (hasEffectivePresenceFilter(filters.acceptancePresence)) count += 1;
+    if (hasEffectivePresenceFilter(filters.paymentPresence)) count += 1;
+    if (hasEffectivePresenceFilter(filters.invoicePresence)) count += 1;
+
+    return count;
+}
+
 const categoryTypeLabels = {
     MEDICINE: "Thuốc",
     SUPPLY: "Vật tư",
@@ -192,6 +339,10 @@ export default function ContractPage() {
     });
     const [searchInput, setSearchInput] = useState("");
     const [searchTerm, setSearchTerm] = useState("");
+    const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
+    const [draftFilters, setDraftFilters] = useState<ContractFilters>(() => cloneContractFilters(emptyContractFilters));
+    const [appliedFilters, setAppliedFilters] = useState<ContractFilters>(() => cloneContractFilters(emptyContractFilters));
+    const [companyFilterSearch, setCompanyFilterSearch] = useState("");
     const [isDialogOpen, setIsDialogOpen] = useState(false);
     const [editingContract, setEditingContract] = useState<Contract | null>(null);
     const [formData, setFormData] = useState({
@@ -216,7 +367,11 @@ export default function ContractPage() {
     const [importPreview, setImportPreview] = useState<ExcelImportPreview | null>(null);
     const excelFileInputRef = useRef<HTMLInputElement | null>(null);
 
-    const fetchContracts = useCallback(async (targetPage: number, targetSearch: string) => {
+    const fetchContracts = useCallback(async (
+        targetPage: number,
+        targetSearch: string,
+        targetFilters: ContractFilters
+    ) => {
         setLoading(true);
         try {
             const params = new URLSearchParams({
@@ -227,6 +382,8 @@ export default function ContractPage() {
             if (targetSearch) {
                 params.set("search", targetSearch);
             }
+
+            appendContractFilters(params, targetFilters);
 
             const response = await fetch(`/api/contracts?${params.toString()}`);
             if (!response.ok) {
@@ -257,8 +414,8 @@ export default function ContractPage() {
     }, []);
 
     useEffect(() => {
-        fetchContracts(page, searchTerm);
-    }, [fetchContracts, page, searchTerm]);
+        fetchContracts(page, searchTerm, appliedFilters);
+    }, [fetchContracts, page, searchTerm, appliedFilters]);
 
     useEffect(() => {
         fetchCompanies();
@@ -272,6 +429,46 @@ export default function ContractPage() {
 
         return () => window.clearTimeout(timeoutId);
     }, [searchInput]);
+
+    const appliedFilterCount = useMemo(() => countActiveFilterGroups(appliedFilters), [appliedFilters]);
+    const draftFilterCount = useMemo(() => countActiveFilterGroups(draftFilters), [draftFilters]);
+    const filteredCompanies = useMemo(() => {
+        const search = companyFilterSearch.trim().toLowerCase();
+        if (!search) return companies;
+
+        return companies.filter((company) => company.name.toLowerCase().includes(search));
+    }, [companies, companyFilterSearch]);
+
+    const hasAppliedAdvancedFilters = appliedFilterCount > 0;
+    const isGoodsCategoryTypeDisabled = isNoGoodsCategoryOnly(draftFilters);
+
+    function handleFilterPanelToggle() {
+        setIsFilterPanelOpen((isOpen) => {
+            const nextOpen = !isOpen;
+            if (nextOpen) {
+                setDraftFilters(cloneContractFilters(appliedFilters));
+            }
+            return nextOpen;
+        });
+    }
+
+    function handleApplyFilters() {
+        setAppliedFilters(cloneContractFilters(draftFilters));
+        setPage(1);
+    }
+
+    function handleClearAdvancedFilters() {
+        const emptyFilters = cloneContractFilters(emptyContractFilters);
+        setDraftFilters(emptyFilters);
+        setAppliedFilters(cloneContractFilters(emptyContractFilters));
+        setCompanyFilterSearch("");
+        setPage(1);
+    }
+
+    function handleClearDraftFilters() {
+        setDraftFilters(cloneContractFilters(emptyContractFilters));
+        setCompanyFilterSearch("");
+    }
 
     function createEmptyMedicineItem(): MedicineFormItem {
         return {
@@ -545,7 +742,7 @@ export default function ContractPage() {
             });
             if (response.ok) {
                 setIsDialogOpen(false);
-                fetchContracts(page, searchTerm);
+                fetchContracts(page, searchTerm, appliedFilters);
             }
         } catch (error) {
             console.error("Error saving contract:", error);
@@ -560,7 +757,7 @@ export default function ContractPage() {
                 if (contracts.length === 1 && page > 1) {
                     setPage(page - 1);
                 } else {
-                    fetchContracts(page, searchTerm);
+                    fetchContracts(page, searchTerm, appliedFilters);
                 }
             }
         } catch (error) {
@@ -1124,8 +1321,233 @@ export default function ContractPage() {
         );
     }
 
+    function renderCheckboxOption<T extends string>(
+        value: T,
+        label: string,
+        checked: boolean,
+        onChange: () => void,
+        disabled = false
+    ) {
+        return (
+            <label
+                key={value}
+                className={`flex items-center gap-2 rounded-md px-2 py-1.5 text-sm ${disabled
+                    ? "cursor-not-allowed text-slate-400"
+                    : "cursor-pointer text-slate-700 hover:bg-slate-50"
+                }`}
+            >
+                <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={onChange}
+                    disabled={disabled}
+                    className="h-4 w-4 rounded border-slate-300 accent-blue-600"
+                />
+                <span>{label}</span>
+            </label>
+        );
+    }
+
+    function renderPresenceFilter(label: string, field: PresenceFilterField) {
+        const values = draftFilters[field];
+
+        return (
+            <div className="space-y-2">
+                <Label className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</Label>
+                <div className="flex flex-wrap gap-1">
+                    {presenceFilterOptions.map((option) => renderCheckboxOption(
+                        option.value,
+                        option.label,
+                        values.includes(option.value),
+                        () => setDraftFilters((filters) => ({
+                            ...filters,
+                            [field]: toggleFilterValue(filters[field], option.value),
+                        }))
+                    ))}
+                </div>
+            </div>
+        );
+    }
+
+    function renderAdvancedFilters() {
+        return (
+            <div className="mt-4 space-y-5 border-t border-slate-200 pt-4">
+                <div className="grid gap-6 xl:grid-cols-3">
+                    <section className="space-y-4">
+                        <h3 className="text-sm font-semibold text-slate-800">Thông tin hợp đồng</h3>
+                        <div className="space-y-2">
+                            <Label className="text-slate-700">Công ty</Label>
+                            <Input
+                                value={companyFilterSearch}
+                                onChange={(e) => setCompanyFilterSearch(e.target.value)}
+                                placeholder="Tìm công ty..."
+                                className="h-8 bg-white border-slate-200 text-slate-800 focus:border-blue-500"
+                            />
+                            <div className="max-h-40 overflow-y-auto rounded-md border border-slate-200 p-2">
+                                {filteredCompanies.length === 0 ? (
+                                    <div className="px-2 py-4 text-center text-sm text-slate-500">
+                                        Không có công ty phù hợp
+                                    </div>
+                                ) : (
+                                    filteredCompanies.map((company) => renderCheckboxOption(
+                                        company.id,
+                                        company.name,
+                                        draftFilters.companyIds.includes(company.id),
+                                        () => setDraftFilters((filters) => ({
+                                            ...filters,
+                                            companyIds: toggleFilterValue(filters.companyIds, company.id),
+                                        }))
+                                    ))
+                                )}
+                            </div>
+                        </div>
+                        <div className="space-y-2">
+                            <Label className="text-slate-700">Hiệu lực</Label>
+                            <div className="flex flex-wrap gap-1">
+                                {statusFilterOptions.map((option) => renderCheckboxOption(
+                                    option.value,
+                                    option.label,
+                                    draftFilters.statuses.includes(option.value),
+                                    () => setDraftFilters((filters) => ({
+                                        ...filters,
+                                        statuses: toggleFilterValue(filters.statuses, option.value),
+                                    }))
+                                ))}
+                            </div>
+                        </div>
+                        <div className="space-y-2">
+                            <Label className="text-slate-700">Ưu tiên</Label>
+                            <div className="flex flex-wrap gap-1">
+                                {priorityFilterOptions.map((option) => renderCheckboxOption(
+                                    option.value,
+                                    option.label,
+                                    draftFilters.priorities.includes(option.value),
+                                    () => setDraftFilters((filters) => ({
+                                        ...filters,
+                                        priorities: toggleFilterValue(filters.priorities, option.value),
+                                    }))
+                                ))}
+                            </div>
+                        </div>
+                    </section>
+
+                    <section className="space-y-4">
+                        <h3 className="text-sm font-semibold text-slate-800">Thời gian</h3>
+                        <div className="space-y-2">
+                            <Label className="text-slate-700">Ngày ký</Label>
+                            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                                <Input
+                                    type="date"
+                                    value={draftFilters.signDateFrom}
+                                    onChange={(e) => setDraftFilters((filters) => ({ ...filters, signDateFrom: e.target.value }))}
+                                    className="bg-white border-slate-200 text-slate-800 focus:border-blue-500"
+                                />
+                                <Input
+                                    type="date"
+                                    value={draftFilters.signDateTo}
+                                    onChange={(e) => setDraftFilters((filters) => ({ ...filters, signDateTo: e.target.value }))}
+                                    className="bg-white border-slate-200 text-slate-800 focus:border-blue-500"
+                                />
+                            </div>
+                        </div>
+                        <div className="space-y-2">
+                            <Label className="text-slate-700">Ngày hết hạn</Label>
+                            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                                <Input
+                                    type="date"
+                                    value={draftFilters.expiryDateFrom}
+                                    onChange={(e) => setDraftFilters((filters) => ({ ...filters, expiryDateFrom: e.target.value }))}
+                                    className="bg-white border-slate-200 text-slate-800 focus:border-blue-500"
+                                />
+                                <Input
+                                    type="date"
+                                    value={draftFilters.expiryDateTo}
+                                    onChange={(e) => setDraftFilters((filters) => ({ ...filters, expiryDateTo: e.target.value }))}
+                                    className="bg-white border-slate-200 text-slate-800 focus:border-blue-500"
+                                />
+                            </div>
+                        </div>
+                        <div className="space-y-2">
+                            <Label className="text-slate-700">Sắp hết hạn</Label>
+                            <div className="flex flex-wrap gap-1">
+                                {expiringInDaysOptions.map((option) => (
+                                    <button
+                                        key={option.value}
+                                        type="button"
+                                        onClick={() => setDraftFilters((filters) => ({
+                                            ...filters,
+                                            expiringInDays: filters.expiringInDays === option.value ? "" : option.value,
+                                        }))}
+                                        className={`rounded-md border px-3 py-1.5 text-sm transition-colors ${draftFilters.expiringInDays === option.value
+                                            ? "border-blue-600 bg-blue-50 text-blue-700"
+                                            : "border-slate-200 text-slate-700 hover:bg-slate-50"
+                                        }`}
+                                    >
+                                        {option.label}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    </section>
+
+                    <section className="space-y-4">
+                        <h3 className="text-sm font-semibold text-slate-800">Vận hành</h3>
+                        {renderPresenceFilter("Danh mục hàng hóa", "goodsCategoryPresence")}
+                        <div className="space-y-2">
+                            <Label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Loại danh mục</Label>
+                            <div className="flex flex-wrap gap-1">
+                                {goodsCategoryFilterOptions.map((option) => renderCheckboxOption(
+                                    option.value,
+                                    option.label,
+                                    draftFilters.goodsCategoryTypes.includes(option.value),
+                                    () => setDraftFilters((filters) => ({
+                                        ...filters,
+                                        goodsCategoryTypes: toggleFilterValue(filters.goodsCategoryTypes, option.value),
+                                    })),
+                                    isGoodsCategoryTypeDisabled
+                                ))}
+                            </div>
+                        </div>
+                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                            {renderPresenceFilter("Phụ lục", "appendixPresence")}
+                            {renderPresenceFilter("Nghiệm thu", "acceptancePresence")}
+                            {renderPresenceFilter("Thanh toán", "paymentPresence")}
+                            {renderPresenceFilter("Hóa đơn", "invoicePresence")}
+                        </div>
+                    </section>
+                </div>
+
+                <div className="flex flex-col gap-3 border-t border-slate-200 pt-4 sm:flex-row sm:items-center sm:justify-between">
+                    <p className="text-sm text-slate-500">Đang chọn {draftFilterCount} nhóm điều kiện</p>
+                    <div className="flex flex-wrap gap-2">
+                        <Button
+                            type="button"
+                            variant="outline"
+                            onClick={handleClearDraftFilters}
+                            className="border-slate-200 text-slate-600 hover:bg-slate-50"
+                        >
+                            Xóa lựa chọn
+                        </Button>
+                        <Button
+                            type="button"
+                            onClick={handleApplyFilters}
+                            className="bg-gradient-to-r from-blue-600 to-purple-600 text-white"
+                        >
+                            Áp dụng
+                        </Button>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
     const startRow = pagination.total === 0 ? 0 : (pagination.page - 1) * pagination.pageSize + 1;
     const endRow = Math.min(pagination.page * pagination.pageSize, pagination.total);
+    const resultDescription = hasAppliedAdvancedFilters
+        ? "Kết quả theo bộ lọc đang áp dụng"
+        : searchTerm
+            ? "Kết quả tìm kiếm"
+            : "Danh sách tất cả hợp đồng";
 
     return (
         <div className="space-y-6">
@@ -1424,22 +1846,52 @@ export default function ContractPage() {
 
             <Card className="bg-white/80 border-slate-200 shadow-sm backdrop-blur-sm">
                 <CardContent className="p-4">
-                    <div className="relative">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                        <Input
-                            placeholder="Tìm kiếm theo số hợp đồng, tên công ty..."
-                            value={searchInput}
-                            onChange={(e) => setSearchInput(e.target.value)}
-                            className="pl-10 bg-white border-slate-200 text-slate-800 focus:border-blue-500"
-                        />
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+                        <div className="relative flex-1">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                            <Input
+                                placeholder="Tìm kiếm theo số hợp đồng, tên công ty..."
+                                value={searchInput}
+                                onChange={(e) => setSearchInput(e.target.value)}
+                                className="pl-10 bg-white border-slate-200 text-slate-800 focus:border-blue-500"
+                            />
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                            <Button
+                                type="button"
+                                variant="outline"
+                                onClick={handleFilterPanelToggle}
+                                className="border-slate-200 text-slate-700 hover:bg-slate-50"
+                            >
+                                <SlidersHorizontal className="w-4 h-4" />
+                                Bộ lọc
+                                {appliedFilterCount > 0 && (
+                                    <Badge variant="outline" className="ml-1 border-blue-200 bg-blue-50 text-blue-700">
+                                        {appliedFilterCount}
+                                    </Badge>
+                                )}
+                            </Button>
+                            {hasAppliedAdvancedFilters && (
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    onClick={handleClearAdvancedFilters}
+                                    className="border-slate-200 text-slate-600 hover:bg-slate-50"
+                                >
+                                    <X className="w-4 h-4" />
+                                    Xóa lọc
+                                </Button>
+                            )}
+                        </div>
                     </div>
+                    {isFilterPanelOpen && renderAdvancedFilters()}
                 </CardContent>
             </Card>
 
             <Card className="bg-white/80 border-slate-200 shadow-sm backdrop-blur-sm">
                 <CardHeader>
                     <CardTitle className="text-slate-800">Hợp đồng ({pagination.total})</CardTitle>
-                    <CardDescription className="text-slate-500">Danh sách tất cả hợp đồng</CardDescription>
+                    <CardDescription className="text-slate-500">{resultDescription}</CardDescription>
                 </CardHeader>
                 <CardContent>
                     {loading ? (
