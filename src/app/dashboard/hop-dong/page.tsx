@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useSession } from "next-auth/react";
 import {
     Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -18,7 +18,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import {
     Plus, Pencil, Trash2, FileText, Search, ChevronLeft, ChevronRight, Download, Upload, SlidersHorizontal, X,
+    List, Folders, LayoutGrid, ChevronDown, Building2, Calendar,
 } from "lucide-react";
+import {
+    Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle,
+} from "@/components/ui/sheet";
+import { cn } from "@/lib/utils";
 
 interface Company {
     id: string;
@@ -360,6 +365,11 @@ export default function ContractPage() {
         status: "ACTIVE",
         priority: "NORMAL",
     });
+
+    const [viewMode, setViewMode] = useState<"LIST" | "GROUP" | "GRID">("LIST");
+    const [expandedCompanies, setExpandedCompanies] = useState<string[]>([]);
+    const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null);
+    const [isSheetOpen, setIsSheetOpen] = useState(false);
     const [isCategoryDialogOpen, setIsCategoryDialogOpen] = useState(false);
     const [selectedContract, setSelectedContract] = useState<Contract | null>(null);
     const [goodsCategory, setGoodsCategory] = useState<ContractGoodsCategory | null>(null);
@@ -447,6 +457,45 @@ export default function ContractPage() {
 
     const hasAppliedAdvancedFilters = appliedFilterCount > 0;
     const isGoodsCategoryTypeDisabled = isNoGoodsCategoryOnly(draftFilters);
+
+    const groupedCompanyList = useMemo(() => {
+        const groups = contracts.reduce((acc, contract) => {
+            const compId = contract.companyId;
+            if (!acc[compId]) {
+                acc[compId] = {
+                    company: contract.company,
+                    contracts: [],
+                    totalBaseValue: 0,
+                    totalAppendixValue: 0,
+                    totalValue: 0,
+                };
+            }
+            acc[compId].contracts.push(contract);
+            const baseValue = Number(contract.value);
+            const appendixValue = contract.appendices?.reduce((sum, app) => sum + Number(app.value), 0) || 0;
+            acc[compId].totalBaseValue += baseValue;
+            acc[compId].totalAppendixValue += appendixValue;
+            acc[compId].totalValue += (baseValue + appendixValue);
+            return acc;
+        }, {} as Record<string, { company: Company; contracts: Contract[]; totalBaseValue: number; totalAppendixValue: number; totalValue: number }>);
+
+        return Object.values(groups).sort((a, b) =>
+            a.company.name.localeCompare(b.company.name, 'vi')
+        );
+    }, [contracts]);
+
+    const selectedCompanyGroup = useMemo(() => {
+        if (!selectedCompanyId) return null;
+        return groupedCompanyList.find((g) => g.company.id === selectedCompanyId) || null;
+    }, [selectedCompanyId, groupedCompanyList]);
+
+    const toggleCompanyExpand = (companyId: string) => {
+        setExpandedCompanies((prev) =>
+            prev.includes(companyId)
+                ? prev.filter((id) => id !== companyId)
+                : [...prev, companyId]
+        );
+    };
 
     function handleFilterPanelToggle() {
         setIsFilterPanelOpen((isOpen) => {
@@ -1854,7 +1903,7 @@ export default function ContractPage() {
 
             <Card className="bg-white/80 border-slate-200 shadow-sm backdrop-blur-sm">
                 <CardContent className="p-4">
-                    <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-center justify-between">
                         <div className="relative flex-1">
                             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                             <Input
@@ -1864,12 +1913,12 @@ export default function ContractPage() {
                                 className="pl-10 bg-white border-slate-200 text-slate-800 focus:border-blue-500"
                             />
                         </div>
-                        <div className="flex flex-wrap gap-2">
+                        <div className="flex flex-wrap gap-2 items-center">
                             <Button
                                 type="button"
                                 variant="outline"
                                 onClick={handleFilterPanelToggle}
-                                className="border-slate-200 text-slate-700 hover:bg-slate-50"
+                                className="border-slate-200 text-slate-700 hover:bg-slate-50 h-9"
                             >
                                 <SlidersHorizontal className="w-4 h-4" />
                                 Bộ lọc
@@ -1884,143 +1933,501 @@ export default function ContractPage() {
                                     type="button"
                                     variant="outline"
                                     onClick={handleClearAdvancedFilters}
-                                    className="border-slate-200 text-slate-600 hover:bg-slate-50"
+                                    className="border-slate-200 text-slate-600 hover:bg-slate-50 h-9"
                                 >
                                     <X className="w-4 h-4" />
                                     Xóa lọc
                                 </Button>
                             )}
+
+                            {/* View Switcher Toggle */}
+                            <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg border border-slate-200 shrink-0 ml-1">
+                                <Button
+                                    type="button"
+                                    variant={viewMode === "LIST" ? "secondary" : "ghost"}
+                                    size="sm"
+                                    onClick={() => setViewMode("LIST")}
+                                    className={cn("text-xs font-medium gap-1.5 h-8 px-2.5 rounded-md transition-all", viewMode === "LIST" ? "bg-white shadow-xs text-slate-800 font-bold" : "text-slate-600 hover:text-slate-900")}
+                                >
+                                    <List className="w-3.5 h-3.5" />
+                                    Danh sách
+                                </Button>
+                                <Button
+                                    type="button"
+                                    variant={viewMode === "GROUP" ? "secondary" : "ghost"}
+                                    size="sm"
+                                    onClick={() => setViewMode("GROUP")}
+                                    className={cn("text-xs font-medium gap-1.5 h-8 px-2.5 rounded-md transition-all", viewMode === "GROUP" ? "bg-white shadow-xs text-slate-800 font-bold" : "text-slate-600 hover:text-slate-900")}
+                                >
+                                    <Folders className="w-3.5 h-3.5" />
+                                    Nhóm công ty
+                                </Button>
+                                <Button
+                                    type="button"
+                                    variant={viewMode === "GRID" ? "secondary" : "ghost"}
+                                    size="sm"
+                                    onClick={() => setViewMode("GRID")}
+                                    className={cn("text-xs font-medium gap-1.5 h-8 px-2.5 rounded-md transition-all", viewMode === "GRID" ? "bg-white shadow-xs text-slate-800 font-bold" : "text-slate-600 hover:text-slate-900")}
+                                >
+                                    <LayoutGrid className="w-3.5 h-3.5" />
+                                    Thẻ Grid
+                                </Button>
+                            </div>
                         </div>
                     </div>
                     {isFilterPanelOpen && renderAdvancedFilters()}
                 </CardContent>
             </Card>
 
-            <Card className="bg-white/80 border-slate-200 shadow-sm backdrop-blur-sm">
-                <CardHeader>
-                    <CardTitle className="text-slate-800">Hợp đồng ({pagination.total})</CardTitle>
-                    <CardDescription className="text-slate-500">{resultDescription}</CardDescription>
-                </CardHeader>
-                <CardContent>
-                    {loading ? (
-                        <div className="text-center py-8 text-slate-500">Đang tải...</div>
-                    ) : (
-                        <>
-                        <div className="overflow-x-auto">
-                            <Table>
-                                <TableHeader>
-                                    <TableRow className="border-slate-200 hover:bg-transparent">
-                                        <TableHead className="text-slate-500 w-16">STT</TableHead>
-                                        <TableHead className="text-slate-500">Số hợp đồng</TableHead>
-                                        <TableHead className="text-slate-500">Công ty</TableHead>
-                                        <TableHead className="text-slate-500 text-center">Số lượng mặt hàng</TableHead>
-                                        <TableHead className="text-slate-500">Ngày ký</TableHead>
-                                        <TableHead className="text-slate-500">Ngày hết hạn</TableHead>
-                                        <TableHead className="text-slate-500">Giá trị</TableHead>
-                                        <TableHead className="text-slate-500">Hiệu lực</TableHead>
-                                        <TableHead className="text-slate-500">Ưu tiên</TableHead>
-                                        <TableHead className="text-slate-500">Giá trị Phụ lục</TableHead>
-                                        <TableHead className="text-slate-500">Tổng giá trị</TableHead>
-                                        <TableHead className="text-slate-500 text-right">Thao tác</TableHead>
-                                    </TableRow>
-                                </TableHeader>
-                                <TableBody>
-                                    {contracts.length === 0 ? (
-                                        <TableRow>
-                                            <TableCell colSpan={12} className="text-center py-8 text-slate-500">
-                                                Không có dữ liệu
-                                            </TableCell>
-                                        </TableRow>
-                                    ) : (
-                                        contracts.map((contract, index) => {
-                                            const totalAppendixValue = contract.appendices?.reduce((sum, app) => sum + Number(app.value), 0) || 0;
-                                            const totalValue = Number(contract.value) + totalAppendixValue;
-                                            const itemCount = (contract.goodsCategory?._count.medicines || 0) + (contract.goodsCategory?._count.supplies || 0);
-                                            return (
-                                                <TableRow key={contract.id} className="border-slate-100 hover:bg-slate-50">
-                                                    <TableCell className="text-slate-500">{(pagination.page - 1) * pagination.pageSize + index + 1}</TableCell>
-                                                    <TableCell className="text-slate-800 font-medium">{contract.contractNumber}</TableCell>
-                                                    <TableCell className="text-slate-600">{contract.company.name}</TableCell>
-                                                    <TableCell className="text-center font-semibold text-slate-700">{itemCount}</TableCell>
-                                                    <TableCell className="text-slate-600">{formatDate(contract.signDate)}</TableCell>
-                                                    <TableCell className="text-slate-600">{formatDate(contract.expiryDate)}</TableCell>
-                                                    <TableCell className="text-slate-600">{formatCurrency(Number(contract.value))}</TableCell>
-                                                    <TableCell>
-                                                        <Badge variant="outline" className={statusLabels[contract.status].color}>
-                                                            {statusLabels[contract.status].label}
-                                                        </Badge>
-                                                    </TableCell>
-                                                    <TableCell>
-                                                        <Badge variant="outline" className={priorityLabels[contract.priority].color}>
-                                                            {priorityLabels[contract.priority].label}
-                                                        </Badge>
-                                                    </TableCell>
-                                                    <TableCell className="text-slate-600 font-medium text-blue-600">
-                                                        {formatCurrency(totalAppendixValue)}
-                                                    </TableCell>
-                                                    <TableCell className="text-slate-800 font-bold text-green-600">
-                                                        {formatCurrency(totalValue)}
-                                                    </TableCell>
-                                                    <TableCell className="text-right">
-                                                        <div className="flex justify-end gap-2">
-                                                            <Button size="sm" variant="ghost" onClick={() => openCategoryDialog(contract)} title="Danh mục hàng hóa" aria-label="Danh mục hàng hóa" className="text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50">
-                                                                <FileText className="w-4 h-4" />
-                                                            </Button>
-                                                            {canEdit && (
-                                                                <>
-                                                                <Button size="sm" variant="ghost" onClick={() => openEditDialog(contract)} className="text-blue-600 hover:text-blue-700 hover:bg-blue-50">
-                                                                    <Pencil className="w-4 h-4" />
-                                                                </Button>
-                                                                <Button size="sm" variant="ghost" onClick={() => handleDelete(contract.id)} className="text-red-600 hover:text-red-700 hover:bg-red-50">
-                                                                    <Trash2 className="w-4 h-4" />
-                                                                </Button>
-                                                                </>
-                                                            )}
-                                                        </div>
-                                                    </TableCell>
-                                                </TableRow>
-                                            );
-                                        })
-                                    )}
-                                </TableBody>
-                            </Table>
+            {loading ? (
+                <div className="text-center py-12 text-slate-500 bg-white/50 rounded-xl border border-slate-200">Đang tải...</div>
+            ) : (
+                <>
+                    {viewMode === "GRID" ? (
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                            {groupedCompanyList.length === 0 ? (
+                                <div className="col-span-full text-center py-12 bg-white/80 border border-slate-200 rounded-xl text-slate-500">
+                                    Không có dữ liệu công ty nào phù hợp
+                                </div>
+                            ) : (
+                                groupedCompanyList.map((group) => (
+                                    <Card key={group.company.id} className="bg-white/90 border-slate-200 hover:border-slate-350 transition-all duration-300 hover:shadow-md flex flex-col justify-between overflow-hidden">
+                                        <CardHeader className="pb-3 bg-gradient-to-r from-slate-50 to-slate-100/50 border-b border-slate-100">
+                                            <div className="flex items-start justify-between gap-3">
+                                                <div className="flex items-center gap-3">
+                                                    <div className="w-10 h-10 rounded-full bg-indigo-50 border border-indigo-100 flex items-center justify-center shrink-0">
+                                                        <Building2 className="w-5 h-5 text-indigo-600" />
+                                                    </div>
+                                                    <div>
+                                                        <CardTitle className="text-slate-800 text-base font-bold line-clamp-1">
+                                                            {group.company.name}
+                                                        </CardTitle>
+                                                        <CardDescription className="text-slate-500 text-xs flex items-center gap-1.5 mt-0.5">
+                                                            <FileText className="w-3 h-3 text-slate-400" />
+                                                            {group.contracts.length} hợp đồng
+                                                        </CardDescription>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </CardHeader>
+                                        <CardContent className="pt-4 pb-3 space-y-3.5 flex-1">
+                                            <div className="space-y-2">
+                                                <div className="flex justify-between items-center text-xs">
+                                                    <span className="text-slate-500">Hợp đồng gốc:</span>
+                                                    <span className="font-semibold text-slate-700">{formatCurrency(group.totalBaseValue)}</span>
+                                                </div>
+                                                <div className="flex justify-between items-center text-xs">
+                                                    <span className="text-slate-500">Giá trị Phụ lục:</span>
+                                                    <span className="font-semibold text-blue-600">{formatCurrency(group.totalAppendixValue)}</span>
+                                                </div>
+                                                <div className="flex justify-between items-center pt-2 border-t border-slate-100 text-sm">
+                                                    <span className="font-bold text-slate-850">Tổng công nợ:</span>
+                                                    <span className="font-extrabold text-green-600">{formatCurrency(group.totalValue)}</span>
+                                                </div>
+                                            </div>
+                                        </CardContent>
+                                        <div className="px-6 pb-4 pt-1.5 bg-slate-50/50 border-t border-slate-100 flex justify-between items-center">
+                                            <span className="text-[10px] text-slate-400 font-medium">
+                                                Chi tiết công nợ
+                                            </span>
+                                            <Button
+                                                size="sm"
+                                                variant="ghost"
+                                                onClick={() => {
+                                                    setSelectedCompanyId(group.company.id);
+                                                    setIsSheetOpen(true);
+                                                }}
+                                                className="text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 font-bold text-xs gap-1 h-8"
+                                            >
+                                                Xem hợp đồng <ChevronRight className="w-3.5 h-3.5" />
+                                            </Button>
+                                        </div>
+                                    </Card>
+                                ))
+                            )}
                         </div>
-                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-4">
-                            <p className="text-sm text-slate-500">
-                                Hiển thị {startRow}-{endRow} / {pagination.total}
-                            </p>
-                            <div className="flex items-center justify-end gap-2">
-                                <Button
-                                    type="button"
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() => setPage((currentPage) => Math.max(1, currentPage - 1))}
-                                    disabled={loading || pagination.page <= 1}
-                                    className="border-slate-200 text-slate-600 hover:bg-slate-50"
-                                >
-                                    <ChevronLeft className="w-4 h-4 mr-1" />
-                                    Trước
-                                </Button>
-                                <span className="min-w-24 text-center text-sm text-slate-600">
-                                    Trang {pagination.page} / {pagination.totalPages}
-                                </span>
-                                <Button
-                                    type="button"
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() => setPage((currentPage) => Math.min(pagination.totalPages, currentPage + 1))}
-                                    disabled={loading || pagination.page >= pagination.totalPages}
-                                    className="border-slate-200 text-slate-600 hover:bg-slate-50"
-                                >
-                                    Sau
-                                    <ChevronRight className="w-4 h-4 ml-1" />
-                                </Button>
+                    ) : (
+                        <Card className="bg-white/80 border-slate-200 shadow-sm backdrop-blur-sm">
+                            <CardHeader className="pb-3 border-b border-slate-100">
+                                <CardTitle className="text-slate-800 text-lg flex items-center justify-between">
+                                    <span>
+                                        {viewMode === "LIST" 
+                                            ? `Hợp đồng (${pagination.total})` 
+                                            : `Gom nhóm Công ty (${groupedCompanyList.length})`
+                                        }
+                                    </span>
+                                </CardTitle>
+                                <CardDescription className="text-slate-500">{resultDescription}</CardDescription>
+                            </CardHeader>
+                            <CardContent className="pt-4">
+                                <div className="overflow-x-auto">
+                                    {viewMode === "LIST" ? (
+                                        <Table>
+                                            <TableHeader>
+                                                <TableRow className="border-slate-200 hover:bg-transparent">
+                                                    <TableHead className="text-slate-500 w-16">STT</TableHead>
+                                                    <TableHead className="text-slate-500">Số hợp đồng</TableHead>
+                                                    <TableHead className="text-slate-500">Công ty</TableHead>
+                                                    <TableHead className="text-slate-500 text-center">Số lượng mặt hàng</TableHead>
+                                                    <TableHead className="text-slate-500">Ngày ký</TableHead>
+                                                    <TableHead className="text-slate-500">Ngày hết hạn</TableHead>
+                                                    <TableHead className="text-slate-500">Giá trị</TableHead>
+                                                    <TableHead className="text-slate-500">Hiệu lực</TableHead>
+                                                    <TableHead className="text-slate-500">Ưu tiên</TableHead>
+                                                    <TableHead className="text-slate-500">Giá trị Phụ lục</TableHead>
+                                                    <TableHead className="text-slate-500">Tổng giá trị</TableHead>
+                                                    <TableHead className="text-slate-500 text-right">Thao tác</TableHead>
+                                                </TableRow>
+                                            </TableHeader>
+                                            <TableBody>
+                                                {contracts.length === 0 ? (
+                                                    <TableRow>
+                                                        <TableCell colSpan={12} className="text-center py-8 text-slate-500">
+                                                            Không có dữ liệu
+                                                        </TableCell>
+                                                    </TableRow>
+                                                ) : (
+                                                    contracts.map((contract, index) => {
+                                                        const totalAppendixValue = contract.appendices?.reduce((sum, app) => sum + Number(app.value), 0) || 0;
+                                                        const totalValue = Number(contract.value) + totalAppendixValue;
+                                                        const itemCount = (contract.goodsCategory?._count.medicines || 0) + (contract.goodsCategory?._count.supplies || 0);
+                                                        return (
+                                                            <TableRow key={contract.id} className="border-slate-100 hover:bg-slate-50">
+                                                                <TableCell className="text-slate-500">{(pagination.page - 1) * pagination.pageSize + index + 1}</TableCell>
+                                                                <TableCell className="text-slate-800 font-medium">{contract.contractNumber}</TableCell>
+                                                                <TableCell className="text-slate-600">{contract.company.name}</TableCell>
+                                                                <TableCell className="text-center font-semibold text-slate-700">{itemCount}</TableCell>
+                                                                <TableCell className="text-slate-600">{formatDate(contract.signDate)}</TableCell>
+                                                                <TableCell className="text-slate-600">{formatDate(contract.expiryDate)}</TableCell>
+                                                                <TableCell className="text-slate-600">{formatCurrency(Number(contract.value))}</TableCell>
+                                                                <TableCell>
+                                                                    <Badge variant="outline" className={statusLabels[contract.status].color}>
+                                                                        {statusLabels[contract.status].label}
+                                                                    </Badge>
+                                                                </TableCell>
+                                                                <TableCell>
+                                                                    <Badge variant="outline" className={priorityLabels[contract.priority].color}>
+                                                                        {priorityLabels[contract.priority].label}
+                                                                    </Badge>
+                                                                </TableCell>
+                                                                <TableCell className="text-slate-600 font-medium text-blue-600">
+                                                                    {formatCurrency(totalAppendixValue)}
+                                                                </TableCell>
+                                                                <TableCell className="text-slate-800 font-bold text-green-600">
+                                                                    {formatCurrency(totalValue)}
+                                                                </TableCell>
+                                                                <TableCell className="text-right">
+                                                                    <div className="flex justify-end gap-2">
+                                                                        <Button size="sm" variant="ghost" onClick={() => openCategoryDialog(contract)} title="Danh mục hàng hóa" aria-label="Danh mục hàng hóa" className="text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50">
+                                                                            <FileText className="w-4 h-4" />
+                                                                        </Button>
+                                                                        {canEdit && (
+                                                                            <>
+                                                                            <Button size="sm" variant="ghost" onClick={() => openEditDialog(contract)} className="text-blue-600 hover:text-blue-700 hover:bg-blue-50">
+                                                                                <Pencil className="w-4 h-4" />
+                                                                            </Button>
+                                                                            <Button size="sm" variant="ghost" onClick={() => handleDelete(contract.id)} className="text-red-600 hover:text-red-700 hover:bg-red-50">
+                                                                                <Trash2 className="w-4 h-4" />
+                                                                            </Button>
+                                                                            </>
+                                                                        )}
+                                                                    </div>
+                                                                </TableCell>
+                                                            </TableRow>
+                                                        );
+                                                    })
+                                                )}
+                                            </TableBody>
+                                        </Table>
+                                    ) : (
+                                        <Table>
+                                            <TableHeader>
+                                                <TableRow className="border-slate-200 hover:bg-transparent">
+                                                    <TableHead className="w-12"></TableHead>
+                                                    <TableHead className="text-slate-500 w-16">STT</TableHead>
+                                                    <TableHead className="text-slate-500">Tên công ty</TableHead>
+                                                    <TableHead className="text-slate-500 text-center">Số hợp đồng</TableHead>
+                                                    <TableHead className="text-slate-500">Hợp đồng gốc</TableHead>
+                                                    <TableHead className="text-slate-500">Giá trị Phụ lục</TableHead>
+                                                    <TableHead className="text-slate-500 font-semibold text-green-700">Tổng công nợ</TableHead>
+                                                    <TableHead className="text-slate-500 text-right">Thao tác</TableHead>
+                                                </TableRow>
+                                            </TableHeader>
+                                            <TableBody>
+                                                {groupedCompanyList.length === 0 ? (
+                                                    <TableRow>
+                                                        <TableCell colSpan={8} className="text-center py-8 text-slate-500">
+                                                            Không có dữ liệu
+                                                        </TableCell>
+                                                    </TableRow>
+                                                ) : (
+                                                    groupedCompanyList.map((group, index) => {
+                                                        const isExpanded = expandedCompanies.includes(group.company.id);
+                                                        return (
+                                                            <React.Fragment key={group.company.id}>
+                                                                <TableRow 
+                                                                    className="border-slate-100 hover:bg-slate-50/80 cursor-pointer" 
+                                                                    onClick={() => toggleCompanyExpand(group.company.id)}
+                                                                >
+                                                                    <TableCell className="p-3 text-center" onClick={(e) => e.stopPropagation()}>
+                                                                        <Button 
+                                                                            variant="ghost" 
+                                                                            size="icon" 
+                                                                            className="w-6 h-6 p-0 text-slate-500 hover:text-slate-700"
+                                                                            onClick={() => toggleCompanyExpand(group.company.id)}
+                                                                        >
+                                                                            {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                                                                        </Button>
+                                                                    </TableCell>
+                                                                    <TableCell className="text-slate-500">{index + 1}</TableCell>
+                                                                    <TableCell className="text-slate-800 font-semibold">{group.company.name}</TableCell>
+                                                                    <TableCell className="text-center font-medium text-slate-600">
+                                                                        <Badge variant="secondary" className="bg-slate-100 text-slate-700 font-semibold">
+                                                                            {group.contracts.length}
+                                                                        </Badge>
+                                                                    </TableCell>
+                                                                    <TableCell className="text-slate-600">{formatCurrency(group.totalBaseValue)}</TableCell>
+                                                                    <TableCell className="text-slate-600 font-medium text-blue-600">{formatCurrency(group.totalAppendixValue)}</TableCell>
+                                                                    <TableCell className="text-slate-850 font-bold text-green-600">{formatCurrency(group.totalValue)}</TableCell>
+                                                                    <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
+                                                                        <Button
+                                                                            size="sm"
+                                                                            variant="outline"
+                                                                            onClick={() => {
+                                                                                setSelectedCompanyId(group.company.id);
+                                                                                setIsSheetOpen(true);
+                                                                            }}
+                                                                            className="h-8 border-slate-200 text-slate-700 hover:bg-slate-50 gap-1"
+                                                                        >
+                                                                            <Search className="w-3.5 h-3.5" /> Xem
+                                                                        </Button>
+                                                                    </TableCell>
+                                                                </TableRow>
+                                                                {isExpanded && (
+                                                                    <TableRow className="bg-slate-50/40 hover:bg-slate-50/40" onClick={(e) => e.stopPropagation()}>
+                                                                        <TableCell colSpan={8} className="p-4 pl-12 border-t-0">
+                                                                            <div className="bg-white rounded-xl border border-slate-200/80 shadow-xs overflow-hidden">
+                                                                                <Table>
+                                                                                    <TableHeader className="bg-slate-50/80">
+                                                                                        <TableRow className="hover:bg-transparent border-slate-100">
+                                                                                            <TableHead className="text-slate-500 w-12 text-xs">STT</TableHead>
+                                                                                            <TableHead className="text-slate-500 text-xs">Số hợp đồng</TableHead>
+                                                                                            <TableHead className="text-slate-500 text-xs">Ngày ký</TableHead>
+                                                                                            <TableHead className="text-slate-500 text-xs">Ngày hết hạn</TableHead>
+                                                                                            <TableHead className="text-slate-500 text-xs">Giá trị gốc</TableHead>
+                                                                                            <TableHead className="text-slate-500 text-xs">Hiệu lực</TableHead>
+                                                                                            <TableHead className="text-slate-500 text-xs">Ưu tiên</TableHead>
+                                                                                            <TableHead className="text-slate-500 text-xs">Giá trị Phụ lục</TableHead>
+                                                                                            <TableHead className="text-slate-500 text-xs font-semibold text-green-700">Tổng giá trị</TableHead>
+                                                                                            <TableHead className="text-slate-500 text-right text-xs">Thao tác</TableHead>
+                                                                                        </TableRow>
+                                                                                    </TableHeader>
+                                                                                    <TableBody>
+                                                                                        {group.contracts.map((contract, cIndex) => {
+                                                                                            const totalAppendixValue = contract.appendices?.reduce((sum, app) => sum + Number(app.value), 0) || 0;
+                                                                                            const totalValue = Number(contract.value) + totalAppendixValue;
+                                                                                            return (
+                                                                                                <TableRow key={contract.id} className="border-slate-100 hover:bg-slate-50/50 last:border-b-0">
+                                                                                                    <TableCell className="text-slate-500 text-xs">{cIndex + 1}</TableCell>
+                                                                                                    <TableCell className="text-slate-800 font-bold text-xs">{contract.contractNumber}</TableCell>
+                                                                                                    <TableCell className="text-slate-600 text-xs">{formatDate(contract.signDate)}</TableCell>
+                                                                                                    <TableCell className="text-slate-600 text-xs">{formatDate(contract.expiryDate)}</TableCell>
+                                                                                                    <TableCell className="text-slate-600 text-xs">{formatCurrency(Number(contract.value))}</TableCell>
+                                                                                                    <TableCell>
+                                                                                                        <Badge variant="outline" className={cn("text-[10px] px-2 py-0.5", statusLabels[contract.status].color)}>
+                                                                                                            {statusLabels[contract.status].label}
+                                                                                                        </Badge>
+                                                                                                    </TableCell>
+                                                                                                    <TableCell>
+                                                                                                        <Badge variant="outline" className={cn("text-[10px] px-2 py-0.5", priorityLabels[contract.priority].color)}>
+                                                                                                            {priorityLabels[contract.priority].label}
+                                                                                                        </Badge>
+                                                                                                    </TableCell>
+                                                                                                    <TableCell className="text-slate-600 font-medium text-blue-600 text-xs">
+                                                                                                        {formatCurrency(totalAppendixValue)}
+                                                                                                    </TableCell>
+                                                                                                    <TableCell className="text-slate-800 font-bold text-green-600 text-xs">
+                                                                                                        {formatCurrency(totalValue)}
+                                                                                                    </TableCell>
+                                                                                                    <TableCell className="text-right py-1">
+                                                                                                        <div className="flex justify-end gap-2">
+                                                                                                            <Button size="sm" variant="ghost" onClick={() => openCategoryDialog(contract)} title="Danh mục hàng hóa" aria-label="Danh mục hàng hóa" className="text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 w-7 h-7 p-0">
+                                                                                                                <FileText className="w-3.5 h-3.5" />
+                                                                                                            </Button>
+                                                                                                            {canEdit && (
+                                                                                                                <>
+                                                                                                                <Button size="icon" variant="ghost" onClick={() => openEditDialog(contract)} className="w-7 h-7 text-blue-600 hover:text-blue-700 hover:bg-blue-50">
+                                                                                                                    <Pencil className="w-3.5 h-3.5" />
+                                                                                                                </Button>
+                                                                                                                <Button size="icon" variant="ghost" onClick={() => handleDelete(contract.id)} className="w-7 h-7 text-red-600 hover:text-red-700 hover:bg-red-50">
+                                                                                                                    <Trash2 className="w-3.5 h-3.5" />
+                                                                                                                </Button>
+                                                                                                                </>
+                                                                                                            )}
+                                                                                                        </div>
+                                                                                                    </TableCell>
+                                                                                                </TableRow>
+                                                                                            );
+                                                                                        })}
+                                                                                    </TableBody>
+                                                                                </Table>
+                                                                            </div>
+                                                                        </TableCell>
+                                                                    </TableRow>
+                                                                )}
+                                                            </React.Fragment>
+                                                        );
+                                                    })
+                                                )}
+                                            </TableBody>
+                                        </Table>
+                                    )}
+                                </div>
+                            </CardContent>
+                        </Card>
+                    )}
+
+                    {/* Điều khiển phân trang chung */}
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-4 px-2">
+                        <p className="text-sm text-slate-500">
+                            Hiển thị {startRow}-{endRow} / {pagination.total} hợp đồng
+                        </p>
+                        <div className="flex items-center justify-end gap-2">
+                            <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setPage((currentPage) => Math.max(1, currentPage - 1))}
+                                disabled={loading || pagination.page <= 1}
+                                className="border-slate-200 text-slate-600 hover:bg-slate-50"
+                            >
+                                <ChevronLeft className="w-4 h-4 mr-1" />
+                                Trước
+                            </Button>
+                            <span className="min-w-24 text-center text-sm text-slate-600">
+                                Trang {pagination.page} / {pagination.totalPages}
+                            </span>
+                            <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setPage((currentPage) => Math.min(pagination.totalPages, currentPage + 1))}
+                                disabled={loading || pagination.page >= pagination.totalPages}
+                                className="border-slate-200 text-slate-600 hover:bg-slate-50"
+                            >
+                                Sau
+                                <ChevronRight className="w-4 h-4 ml-1" />
+                            </Button>
+                        </div>
+                    </div>
+                </>
+            )}
+
+            {/* Sheet chi tiết hợp đồng của công ty */}
+            <Sheet open={isSheetOpen} onOpenChange={setIsSheetOpen}>
+                <SheetContent className="w-full sm:max-w-2xl bg-white border-l border-slate-200 text-slate-800 flex flex-col h-full p-0">
+                    <SheetHeader className="p-6 border-b border-slate-100 bg-slate-50/50">
+                        <SheetTitle className="text-slate-800 text-lg font-bold flex items-center gap-2">
+                            <Building2 className="w-5 h-5 text-indigo-600" />
+                            <span className="line-clamp-2">{selectedCompanyGroup?.company.name}</span>
+                        </SheetTitle>
+                        <SheetDescription className="text-slate-500">
+                            Danh sách hợp đồng trong trang hiện tại và tổng hợp giá trị công nợ
+                        </SheetDescription>
+                    </SheetHeader>
+                    
+                    <div className="flex-1 overflow-y-auto p-6 space-y-6">
+                        {/* Chỉ số nhanh */}
+                        <div className="grid grid-cols-3 gap-3 bg-slate-50 p-4 rounded-xl border border-slate-150/80">
+                            <div className="space-y-1">
+                                <p className="text-[10px] uppercase font-bold text-slate-400">Gốc</p>
+                                <p className="text-sm font-semibold text-slate-700">{formatCurrency(selectedCompanyGroup?.totalBaseValue || 0)}</p>
+                            </div>
+                            <div className="space-y-1">
+                                <p className="text-[10px] uppercase font-bold text-slate-400">Phụ lục</p>
+                                <p className="text-sm font-semibold text-blue-600">{formatCurrency(selectedCompanyGroup?.totalAppendixValue || 0)}</p>
+                            </div>
+                            <div className="space-y-1">
+                                <p className="text-[10px] uppercase font-bold text-slate-400">Tổng cộng</p>
+                                <p className="text-sm font-bold text-green-600">{formatCurrency(selectedCompanyGroup?.totalValue || 0)}</p>
                             </div>
                         </div>
-                        </>
-                    )}
-                </CardContent>
-            </Card>
+
+                        {/* Danh sách hợp đồng */}
+                        <div className="space-y-4">
+                            {selectedCompanyGroup?.contracts.map((contract, idx) => {
+                                const appVal = contract.appendices?.reduce((sum, app) => sum + Number(app.value), 0) || 0;
+                                const totalVal = Number(contract.value) + appVal;
+                                return (
+                                    <div key={contract.id} className="p-4 rounded-xl border border-slate-200 bg-white hover:border-slate-350 transition-colors shadow-xs space-y-3">
+                                        <div className="flex items-center justify-between">
+                                            <div className="space-y-0.5">
+                                                <p className="text-[10px] font-semibold text-slate-400">HỢP ĐỒNG #{idx + 1}</p>
+                                                <p className="text-sm font-bold text-slate-800">{contract.contractNumber}</p>
+                                            </div>
+                                            <div className="flex items-center gap-1.5">
+                                                <Badge variant="outline" className={cn("text-[10px] px-2 py-0.5", statusLabels[contract.status].color)}>
+                                                    {statusLabels[contract.status].label}
+                                                </Badge>
+                                                <Badge variant="outline" className={cn("text-[10px] px-2 py-0.5", priorityLabels[contract.priority].color)}>
+                                                    {priorityLabels[contract.priority].label}
+                                                </Badge>
+                                            </div>
+                                        </div>
+                                        
+                                        <div className="grid grid-cols-2 gap-y-2 text-xs border-y border-slate-100 py-2.5 my-1">
+                                            <div className="flex items-center gap-1.5 text-slate-600">
+                                                <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                                                <span>Ký: <span className="font-medium text-slate-850">{formatDate(contract.signDate)}</span></span>
+                                            </div>
+                                            <div className="flex items-center gap-1.5 text-slate-600">
+                                                <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                                                <span>Hết hạn: <span className="font-medium text-slate-850">{formatDate(contract.expiryDate)}</span></span>
+                                            </div>
+                                            <div className="text-slate-600">
+                                                Giá gốc: <span className="font-semibold text-slate-800">{formatCurrency(Number(contract.value))}</span>
+                                            </div>
+                                            <div className="text-slate-600">
+                                                Phụ lục: <span className="font-semibold text-blue-600">{formatCurrency(appVal)}</span>
+                                            </div>
+                                        </div>
+
+                                        <div className="pt-1.5 flex items-center justify-between">
+                                            <div>
+                                                <span className="text-xs text-slate-500 font-medium">Tổng giá trị:</span>{" "}
+                                                <span className="text-sm font-bold text-green-600">{formatCurrency(totalVal)}</span>
+                                            </div>
+                                            <div className="flex gap-1.5">
+                                                <Button size="sm" variant="ghost" onClick={() => {
+                                                    setIsSheetOpen(false);
+                                                    openCategoryDialog(contract);
+                                                }} title="Danh mục hàng hóa" aria-label="Danh mục hàng hóa" className="text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 h-8 px-2">
+                                                    <FileText className="w-3.5 h-3.5" />
+                                                </Button>
+                                                {canEdit && (
+                                                    <>
+                                                    <Button size="sm" variant="ghost" onClick={() => {
+                                                        setIsSheetOpen(false);
+                                                        openEditDialog(contract);
+                                                    }} className="text-blue-600 hover:text-blue-700 hover:bg-blue-50 h-8 px-2.5">
+                                                        <Pencil className="w-3.5 h-3.5 mr-1" /> Sửa
+                                                    </Button>
+                                                    <Button size="sm" variant="ghost" onClick={() => {
+                                                        handleDelete(contract.id);
+                                                    }} className="text-red-600 hover:text-red-700 hover:bg-red-50 h-8 px-2.5">
+                                                        <Trash2 className="w-3.5 h-3.5 mr-1" /> Xóa
+                                                    </Button>
+                                                    </>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                </SheetContent>
+            </Sheet>
         </div>
     );
 }
